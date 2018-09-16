@@ -215,9 +215,14 @@ fn main() -> Result<(), MainError> {
     shader_program.set_int("ourTexture", 0);
 
     let mut running = true;
+    let mut focused = true;
     let mut pressed_keys = HashSet::new();
     let mut last_frame_time = SystemTime::now();
     while running {
+        if focused {
+            gl_window.grab_cursor(true)?;
+            gl_window.hide_cursor(true);
+        }
         let current_frame_time = SystemTime::now();
         let delta_time = current_frame_time
             .duration_since(last_frame_time)?
@@ -228,14 +233,7 @@ fn main() -> Result<(), MainError> {
             Event::DeviceEvent { event, .. } => on_device_event(&event, &mut pressed_keys),
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => running = false,
-                WindowEvent::Resized(logical_size) => {
-                    let dpi_factor = gl_window.get_hidpi_factor();
-                    gl_window.resize(logical_size.to_physical(dpi_factor));
-                    let (w, h): (u32, u32) = logical_size.into();
-                    unsafe {
-                        gl::Viewport(0, 0, w as i32, h as i32);
-                    }
-                }
+                WindowEvent::Focused(f) => focused = f,
                 _ => (),
             },
             _ => (),
