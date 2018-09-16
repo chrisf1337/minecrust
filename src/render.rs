@@ -2,6 +2,7 @@ use gl;
 use gl::types::*;
 use std;
 use std::ffi::{CStr, CString};
+use types::*;
 
 pub struct Program {
     id: gl::types::GLuint,
@@ -64,6 +65,38 @@ impl Program {
             gl::UseProgram(self.id);
         }
     }
+
+    pub fn set_int(&mut self, name: &str, value: i32) {
+        let name = CString::new(name).unwrap();
+        unsafe {
+            let loc = gl::GetUniformLocation(self.id, name.as_ptr());
+            gl::Uniform1i(loc, value);
+        };
+    }
+
+    pub fn set_float(&mut self, name: &str, value: f32) {
+        let name = CString::new(name).unwrap();
+        unsafe {
+            let loc = gl::GetUniformLocation(self.id, name.as_ptr());
+            gl::Uniform1f(loc, value);
+        };
+    }
+
+    pub fn set_vec4f(&mut self, name: &str, value: &Vector4f) {
+        let name = CString::new(name).unwrap();
+        unsafe {
+            let loc = gl::GetUniformLocation(self.id, name.as_ptr());
+            gl::Uniform4f(loc, value.x, value.y, value.z, value.w);
+        };
+    }
+
+    pub fn set_mat4f(&mut self, name: &str, value: &Matrix4f) {
+        let name = CString::new(name).unwrap();
+        unsafe {
+            let loc = gl::GetUniformLocation(self.id, name.as_ptr());
+            gl::UniformMatrix4fv(loc, 1, gl::FALSE, &value.as_slice()[0] as *const GLfloat);
+        };
+    }
 }
 
 impl Drop for Program {
@@ -105,7 +138,7 @@ impl Drop for Shader {
     }
 }
 
-fn shader_from_source(source: &CStr, kind: gl::types::GLenum) -> Result<gl::types::GLuint, String> {
+fn shader_from_source(source: &CStr, kind: GLenum) -> Result<GLuint, String> {
     let id = unsafe { gl::CreateShader(kind) };
     unsafe {
         gl::ShaderSource(id, 1, &source.as_ptr(), std::ptr::null());
