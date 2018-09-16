@@ -1,4 +1,4 @@
-#![feature(tool_lints, custom_attribute)]
+#![feature(tool_lints, custom_attribute, duration_as_u128)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
 extern crate failure;
@@ -14,12 +14,15 @@ use gl::types::*;
 use glutin::{
     dpi::*, DeviceEvent, Event, GlContext, GlRequest, KeyboardInput, VirtualKeyCode, WindowEvent,
 };
+use minecrust::event_handlers::on_device_event;
 use minecrust::square::Square;
 use minecrust::unitcube::UnitCube;
-use minecrust::{debug, render, types::*};
+use minecrust::{debug, render, types::*, Camera};
 use na::{Isometry, Perspective3, Rotation3, Translation3};
+use std::collections::HashSet;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI};
 use std::ffi::CString;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Fail, Debug)]
 enum MainError {
@@ -131,10 +134,7 @@ fn main() -> Result<(), MainError> {
     let vertices = cube1.vtx_data();
 
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
-    let cobblestone_img = image::open(cobblestone_path)
-        .unwrap_or_else(|_| panic!(format!("failed to open {}", cobblestone_path)))
-        .flipv()
-        .to_rgb();
+    let cobblestone_img = image::open(cobblestone_path)?.flipv().to_rgb();
     let cobblestone_img_data: Vec<u8> = cobblestone_img.clone().into_vec();
 
     let mut vao: GLuint = 0;
@@ -199,10 +199,10 @@ fn main() -> Result<(), MainError> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let view = Matrix4f::look_at_rh(
-        &Point3f::new(0.0, 3.0, -3.0),
-        &Point3f::origin(),
-        &Vector3f::y(),
+    let mut camera = Camera::new(
+        Point3f::new(3.0, 3.0, 3.0),
+        Point3f::origin(),
+        Vector3f::y(),
     );
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
@@ -215,16 +215,17 @@ fn main() -> Result<(), MainError> {
     shader_program.set_int("ourTexture", 0);
 
     let mut running = true;
+    let mut pressed_keys = HashSet::new();
+    let mut last_frame_time = SystemTime::now();
     while running {
+        let current_frame_time = SystemTime::now();
+        let delta_time = current_frame_time
+            .duration_since(last_frame_time)?
+            .as_nanos() as f32
+            / 1.0e9;
+        last_frame_time = current_frame_time;
         events_loop.poll_events(|event| match event {
-            Event::DeviceEvent {
-                event:
-                    DeviceEvent::Key(KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Escape),
-                        ..
-                    }),
-                ..
-            } => running = false,
+            Event::DeviceEvent { event, .. } => on_device_event(&event, &mut pressed_keys),
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => running = false,
                 WindowEvent::Resized(logical_size) => {
@@ -240,13 +241,35 @@ fn main() -> Result<(), MainError> {
             _ => (),
         });
 
+        let camera_speed = 5.0 * delta_time;
+        for keycode in &pressed_keys {
+            match keycode {
+                VirtualKeyCode::W => camera.pos += camera_speed * camera.look_at_dir().as_ref(),
+                VirtualKeyCode::S => camera.pos -= camera_speed * camera.look_at_dir().as_ref(),
+                VirtualKeyCode::A => {
+                    let delta = camera_speed * (Vector3f::cross(&camera.look_at_dir(), &camera.up));
+                    camera.pos -= delta;
+                    camera.target -= delta;
+                }
+                VirtualKeyCode::D => {
+                    let delta = camera_speed * (Vector3f::cross(&camera.look_at_dir(), &camera.up));
+                    camera.pos += delta;
+                    camera.target += delta;
+                }
+                VirtualKeyCode::Escape => {
+                    running = false;
+                }
+                _ => (),
+            }
+        }
+
         unsafe {
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, texture);
         }
 
         shader_program.set_used();
-        shader_program.set_mat4f("view", &view);
+        shader_program.set_mat4f("view", &camera.to_matrix());
         shader_program.set_mat4f("projection", &projection);
 
         unsafe {
