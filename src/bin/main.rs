@@ -11,14 +11,13 @@ extern crate failure_derive;
 extern crate nalgebra as na;
 
 use gl::types::*;
-use glutin::{
-    dpi::*, DeviceEvent, Event, GlContext, GlRequest, KeyboardInput, VirtualKeyCode, WindowEvent,
-};
+use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
+use minecrust::camera::Camera;
 use minecrust::event_handlers::on_device_event;
 use minecrust::square::Square;
 use minecrust::unitcube::UnitCube;
-use minecrust::{debug, render, types::*, Camera};
-use na::{Isometry, Perspective3, Rotation3, Translation3};
+use minecrust::{debug, render, types::*, utils};
+use na::{Isometry, Perspective3, Rotation3, Translation3, Unit};
 use std::collections::HashSet;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI};
 use std::ffi::CString;
@@ -98,40 +97,18 @@ fn main() -> Result<(), MainError> {
         render::Shader::from_frag_source(&CString::new(include_str!("../shaders/triangle.frag"))?)?;
     let mut shader_program = render::Program::from_shaders(&[vert_shader, frag_shader])?;
 
-    // let mut unit_cube = UnitCube::new(1.0);
-    // unit_cube.transform(&Translation3::from_vector(Vector3f::new(0.0, 0.0, 1.0)).to_homogeneous());
-    // let mut vertices = unit_cube.vtx_data();
-
-    // let mut unit_cube2 = UnitCube::new(1.0);
-    // unit_cube2.transform(
-    //     &Isometry::from_parts(
-    //         Translation3::from_vector(Vector3f::new(1.0, 0.0, -1.0)),
-    //         Rotation3::from_axis_angle(&Vector3f::z_axis(), PI / 12.0),
-    //     ).to_homogeneous(),
-    // );
-    // vertices.extend_from_slice(&unit_cube2.vtx_data());
-
     unsafe {
         gl::Enable(gl::CULL_FACE);
         gl::CullFace(gl::BACK);
     }
 
-    // #[rustfmt_skip]
-    // let square1 = Square::new_with_transform(
-    //     1.0,
-    //     // &Isometry::from_parts(
-    //     //     Translation3::from_vector(Vector3f::new(0.0, 0.0, -1.0 / 2.0)),
-    //     //     Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2),
-    //     // ).to_homogeneous(),
-    //     &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_homogeneous()
-    // );
-    // // let square2 = Square::new(1.0);
-    // let mut vertices = square1.vtx_data(&Matrix4f::identity());
-    // // vertices.extend_from_slice(&square2.vtx_data(&Matrix4f::identity()));
-    // println!("{:#?}", vertices);
-
     let cube1 = UnitCube::new(1.0);
-    let vertices = cube1.vtx_data();
+    let square = Square::new_with_transform(
+        100.0,
+        &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
+    );
+    let mut vertices = cube1.vtx_data();
+    vertices.extend(square.vtx_data(&Matrix4f::identity()).iter());
 
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
     let cobblestone_img = image::open(cobblestone_path)?.flipv().to_rgb();
@@ -199,11 +176,7 @@ fn main() -> Result<(), MainError> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let mut camera = Camera::new(
-        Point3f::new(3.0, 3.0, 3.0),
-        Point3f::origin(),
-        Vector3f::y(),
-    );
+    let mut camera = Camera::new_with_target(Point3f::new(-3.0, -3.0, 3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -219,6 +192,7 @@ fn main() -> Result<(), MainError> {
     let mut pressed_keys = HashSet::new();
     let mut last_frame_time = SystemTime::now();
     while running {
+        let mut mouse_delta = (0.0f64, 0.0f64);
         if focused {
             gl_window.grab_cursor(true)?;
             gl_window.hide_cursor(true);
@@ -230,7 +204,9 @@ fn main() -> Result<(), MainError> {
             / 1.0e9;
         last_frame_time = current_frame_time;
         events_loop.poll_events(|event| match event {
-            Event::DeviceEvent { event, .. } => on_device_event(&event, &mut pressed_keys),
+            Event::DeviceEvent { event, .. } => {
+                on_device_event(&event, &mut pressed_keys, &mut mouse_delta)
+            }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => running = false,
                 WindowEvent::Focused(f) => focused = f,
@@ -239,20 +215,25 @@ fn main() -> Result<(), MainError> {
             _ => (),
         });
 
-        let camera_speed = 5.0 * delta_time;
+        let d_yaw = mouse_delta.0 as f32 / 500.0;
+        let d_pitch = mouse_delta.1 as f32 / 500.0;
+        camera.rotate((-d_yaw, -d_pitch));
+        if !utils::f32_almost_eq(d_yaw, 0.0) && !utils::f32_almost_eq(d_pitch, 0.0) {
+            println!("{:#?}", camera);
+        }
+
+        let camera_speed = 3.0 * delta_time;
         for keycode in &pressed_keys {
             match keycode {
-                VirtualKeyCode::W => camera.pos += camera_speed * camera.look_at_dir().as_ref(),
-                VirtualKeyCode::S => camera.pos -= camera_speed * camera.look_at_dir().as_ref(),
+                VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),
+                VirtualKeyCode::S => camera.pos -= camera_speed * camera.direction().unwrap(),
                 VirtualKeyCode::A => {
-                    let delta = camera_speed * (Vector3f::cross(&camera.look_at_dir(), &camera.up));
+                    let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
                     camera.pos -= delta;
-                    camera.target -= delta;
                 }
                 VirtualKeyCode::D => {
-                    let delta = camera_speed * (Vector3f::cross(&camera.look_at_dir(), &camera.up));
+                    let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
                     camera.pos += delta;
-                    camera.target += delta;
                 }
                 VirtualKeyCode::Escape => {
                     running = false;

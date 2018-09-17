@@ -28,3 +28,7 @@ pub fn mat4f_almost_eq(m1: &Matrix4f, m2: &Matrix4f) -> bool {
         && vec4f_almost_eq(&mat4f_col_to_vec4f(m1, 2), &mat4f_col_to_vec4f(m2, 2))
         && vec4f_almost_eq(&mat4f_col_to_vec4f(m1, 3), &mat4f_col_to_vec4f(m2, 3))
 }
+
+pub fn vec3f_from_vec4f(v: &Vector4f) -> Vector3f {
+    Vector3f::new(v.x, v.y, v.z)
+}
