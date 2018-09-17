@@ -15,8 +15,11 @@ pub struct Camera {
 }
 
 impl Camera {
+    /// Yaw follows the right hand rule (i.e. negative z-axis is +pi/2 yaw, while positive z-axis is
+    /// -pi/2 yaw). Pitch is the same (i.e. positive y-axis is +pi/2 yaw, while negative y-axis is
+    /// -pi/2 yaw).
     pub fn new(pos: Point3f, direction: Unit<Vector3f>, up: Unit<Vector3f>) -> Camera {
-        let yaw = f32::acos(direction.x);
+        let yaw = FRAC_PI_2 - f32::atan2(direction.x, -direction.z);
         let pitch = f32::asin(direction.y);
         let right = Unit::new_normalize(Vector3f::cross(&direction, &up));
         let c = Camera {

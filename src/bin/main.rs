@@ -103,11 +103,14 @@ fn main() -> Result<(), MainError> {
     }
 
     let cube1 = UnitCube::new(1.0);
+    let mut cube2 = UnitCube::new(1.0);
+    cube2.transform(&Translation3::from_vector(Vector3f::new(-2.0, 0.0, -2.0)).to_homogeneous());
     let square = Square::new_with_transform(
         100.0,
         &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
     );
     let mut vertices = cube1.vtx_data();
+    vertices.extend(cube2.vtx_data());
     vertices.extend(square.vtx_data(&Matrix4f::identity()).iter());
 
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
@@ -176,7 +179,7 @@ fn main() -> Result<(), MainError> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let mut camera = Camera::new_with_target(Point3f::new(-3.0, -3.0, 3.0), Point3f::origin());
+    let mut camera = Camera::new_with_target(Point3f::new(-3.0, 0.0, -3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -217,9 +220,12 @@ fn main() -> Result<(), MainError> {
 
         let d_yaw = mouse_delta.0 as f32 / 500.0;
         let d_pitch = mouse_delta.1 as f32 / 500.0;
+        // Negate deltas because positive x is decreasing yaw, and positive y (origin for mouse
+        // events is at upper left) is decreasing pitch.
         camera.rotate((-d_yaw, -d_pitch));
         if !utils::f32_almost_eq(d_yaw, 0.0) && !utils::f32_almost_eq(d_pitch, 0.0) {
             println!("{:#?}", camera);
+            println!("{:?}", mouse_delta);
         }
 
         let camera_speed = 3.0 * delta_time;
