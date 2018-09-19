@@ -10,12 +10,12 @@ extern crate minecrust;
 extern crate failure_derive;
 extern crate nalgebra as na;
 
+use failure::{err_msg, Error};
 use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
 use minecrust::camera::Camera;
 use minecrust::event_handlers::on_device_event;
-use minecrust::square::Square;
-use minecrust::unitcube::UnitCube;
+use minecrust::geometry::{square::Square, unitcube::UnitCube};
 use minecrust::{debug, render, types::*, utils};
 use na::{Isometry, Perspective3, Rotation3, Translation3, Unit};
 use std::collections::HashSet;
@@ -67,7 +67,7 @@ impl From<std::time::SystemTimeError> for MainError {
     }
 }
 
-fn main() -> Result<(), MainError> {
+fn main() -> Result<(), Error> {
     let mut events_loop = glutin::EventsLoop::new();
     let window = glutin::WindowBuilder::new()
         .with_title("Hello, world!")
@@ -86,16 +86,20 @@ fn main() -> Result<(), MainError> {
         gl::ClearColor(0.0, 0.0, 0.0, 1.0);
         gl::Viewport(0, 0, screen_width, screen_height);
         gl::Enable(gl::DEPTH_TEST);
-        // gl::DepthRange(1.0, 0.0);
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
     }
 
     debug::enable_debug_output();
 
-    let vert_shader =
-        render::Shader::from_vert_source(&CString::new(include_str!("../shaders/triangle.vert"))?)?;
-    let frag_shader =
-        render::Shader::from_frag_source(&CString::new(include_str!("../shaders/triangle.frag"))?)?;
+    let vert_shader = render::Shader::from_vert_source("src/shaders/triangle.vert")?;
+    let frag_shader = render::Shader::from_frag_source("src/shaders/triangle.frag")?;
     let mut shader_program = render::Program::from_shaders(&[vert_shader, frag_shader])?;
+
+    let crosshair_vshader = render::Shader::from_vert_source("src/shaders/crosshair.vert")?;
+    let crosshair_fshader = render::Shader::from_frag_source("src/shaders/crosshair.frag")?;
+    let mut crosshair_shader_program =
+        render::Program::from_shaders(&[crosshair_vshader, crosshair_fshader])?;
 
     unsafe {
         gl::Enable(gl::CULL_FACE);
@@ -104,29 +108,42 @@ fn main() -> Result<(), MainError> {
 
     let cube1 = UnitCube::new(1.0);
     let mut cube2 = UnitCube::new(1.0);
-    cube2.transform(&Translation3::from_vector(Vector3f::new(-2.0, 0.0, -2.0)).to_homogeneous());
+    cube2.transform(&Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous());
     let square = Square::new_with_transform(
         100.0,
         &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
     );
-    let mut vertices = cube1.vtx_data();
+    let mut vertices = square.vtx_data(&Matrix4f::identity());
+    vertices.extend(cube1.vtx_data());
     vertices.extend(cube2.vtx_data());
-    vertices.extend(square.vtx_data(&Matrix4f::identity()).iter());
 
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
-    let cobblestone_img = image::open(cobblestone_path)?.flipv().to_rgb();
+    let cobblestone_img = image::open(cobblestone_path)?.flipv().to_rgba();
     let cobblestone_img_data: Vec<u8> = cobblestone_img.clone().into_vec();
 
-    let mut vao: GLuint = 0;
-    let mut vbo: GLuint = 0;
-    let mut texture: GLuint = 0;
-    unsafe {
-        gl::GenVertexArrays(1, &mut vao);
-        gl::GenBuffers(1, &mut vbo);
-        gl::GenTextures(1, &mut texture);
+    let crosshair_path = "assets/crosshair.png";
+    let crosshair_img = image::open(crosshair_path)?.flipv().to_rgba();
+    let crosshair_img_data: Vec<u8> = crosshair_img.clone().into_vec();
+    let crosshair_square = Square::new_with_transform(
+        0.1,
+        &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_homogeneous(),
+    );
+    let crosshair_square_vertices = crosshair_square.vtx_data(&Matrix4f::identity());
 
-        gl::BindVertexArray(vao);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+    let mut vaos: [GLuint; 2] = [0, 0];
+    let mut vbos: [GLuint; 2] = [0, 0];
+    let mut textures: [GLuint; 2] = [0, 0];
+    unsafe {
+        gl::GenVertexArrays(2, vaos.as_mut_ptr());
+        gl::GenBuffers(2, vbos.as_mut_ptr());
+        gl::GenTextures(2, textures.as_mut_ptr());
+    }
+    let cobblestone_texture = textures[0];
+    let crosshair_texture = textures[1];
+
+    unsafe {
+        gl::BindVertexArray(vaos[0]);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbos[0]);
         gl::BufferData(
             gl::ARRAY_BUFFER,                                            // target
             (vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr, // size of data in bytes
@@ -154,10 +171,39 @@ fn main() -> Result<(), MainError> {
         );
         gl::EnableVertexAttribArray(1); // this is "layout (location = 1)" in vertex shader
 
+        gl::BindVertexArray(vaos[1]);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbos[1]);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            (crosshair_square_vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
+            crosshair_square_vertices.as_ptr() as *const GLvoid,
+            gl::STATIC_DRAW,
+        );
+
+        gl::VertexAttribPointer(
+            0,         // index of the generic vertex attribute ("layout (location = 0)")
+            3,         // the number of components per generic vertex attribute
+            gl::FLOAT, // data type
+            gl::FALSE, // normalized (int-to-float conversion)
+            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
+            std::ptr::null(),                          // offset of the first component
+        );
+        gl::EnableVertexAttribArray(0); // this is "layout (location = 0)" in vertex shader
+
+        gl::VertexAttribPointer(
+            1,         // index of the generic vertex attribute ("layout (location = 1)")
+            2,         // the number of components per generic vertex attribute
+            gl::FLOAT, // data type
+            gl::FALSE, // normalized (int-to-float conversion)
+            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
+            (3 * std::mem::size_of::<f32>()) as *const GLvoid, // offset of the first component
+        );
+        gl::EnableVertexAttribArray(1); // this is "layout (location = 1)" in vertex shader
+
         gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         gl::BindVertexArray(0);
 
-        gl::BindTexture(gl::TEXTURE_2D, texture);
+        gl::BindTexture(gl::TEXTURE_2D, cobblestone_texture);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
@@ -166,20 +212,39 @@ fn main() -> Result<(), MainError> {
         gl::TexImage2D(
             gl::TEXTURE_2D,
             0,
-            gl::RGB as i32,
+            gl::RGBA as i32,
             cobblestone_img.width() as i32,
             cobblestone_img.height() as i32,
             0,
-            gl::RGB,
+            gl::RGBA,
             gl::UNSIGNED_BYTE,
             cobblestone_img_data.as_ptr() as *const GLvoid,
+        );
+        gl::GenerateMipmap(gl::TEXTURE_2D);
+
+        gl::BindTexture(gl::TEXTURE_2D, crosshair_texture);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32,
+            crosshair_img.width() as i32,
+            crosshair_img.height() as i32,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            crosshair_img_data.as_ptr() as *const GLvoid,
         );
         gl::GenerateMipmap(gl::TEXTURE_2D);
 
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let mut camera = Camera::new_with_target(Point3f::new(-3.0, 0.0, -3.0), Point3f::origin());
+    let mut camera = Camera::new_with_target(Point3f::new(3.0, 0.0, -3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -188,7 +253,9 @@ fn main() -> Result<(), MainError> {
     ).to_homogeneous();
 
     shader_program.set_used();
-    shader_program.set_int("ourTexture", 0);
+    shader_program.set_int("tex", 0); // gl::TEXTURE0
+    crosshair_shader_program.set_used();
+    crosshair_shader_program.set_int("tex", 0);
 
     let mut running = true;
     let mut focused = true;
@@ -197,7 +264,7 @@ fn main() -> Result<(), MainError> {
     while running {
         let mut mouse_delta = (0.0f64, 0.0f64);
         if focused {
-            gl_window.grab_cursor(true)?;
+            gl_window.grab_cursor(true).map_err(err_msg)?;
             gl_window.hide_cursor(true);
         }
         let current_frame_time = SystemTime::now();
@@ -248,18 +315,24 @@ fn main() -> Result<(), MainError> {
             }
         }
 
-        unsafe {
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, texture);
-        }
-
         shader_program.set_used();
         shader_program.set_mat4f("view", &camera.to_matrix());
         shader_program.set_mat4f("projection", &projection);
 
         unsafe {
-            gl::BindVertexArray(vao);
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, textures[0]);
+            gl::BindVertexArray(vaos[0]);
             gl::DrawArrays(gl::TRIANGLES, 0, vertices.len() as i32);
+        }
+
+        crosshair_shader_program.set_used();
+        unsafe {
+            gl::Clear(gl::DEPTH_BUFFER_BIT);
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, textures[1]);
+            gl::BindVertexArray(vaos[1]);
+            gl::DrawArrays(gl::TRIANGLES, 0, crosshair_square_vertices.len() as i32);
         }
 
         gl_window.swap_buffers().unwrap();

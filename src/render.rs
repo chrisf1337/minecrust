@@ -1,7 +1,11 @@
+use failure::{err_msg, Error};
 use gl;
 use gl::types::*;
 use std;
 use std::ffi::{CStr, CString};
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
 use types::*;
 
 pub struct Program {
@@ -9,7 +13,7 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn from_shaders(shaders: &[Shader]) -> Result<Program, String> {
+    pub fn from_shaders(shaders: &[Shader]) -> Result<Program, Error> {
         let program_id = unsafe { gl::CreateProgram() };
 
         for shader in shaders {
@@ -44,7 +48,7 @@ impl Program {
                 );
             }
 
-            return Err(error.to_string_lossy().into_owned());
+            return Err(err_msg(error.to_string_lossy().into_owned()));
         }
 
         for shader in shaders {
@@ -112,17 +116,23 @@ pub struct Shader {
 }
 
 impl Shader {
-    pub fn from_source(source: &CStr, kind: gl::types::GLenum) -> Result<Shader, String> {
+    pub fn from_source(source: &CStr, kind: gl::types::GLenum) -> Result<Shader, Error> {
         let id = shader_from_source(source, kind)?;
         Ok(Shader { id })
     }
 
-    pub fn from_vert_source(source: &CStr) -> Result<Shader, String> {
-        Shader::from_source(source, gl::VERTEX_SHADER)
+    pub fn from_vert_source<P: AsRef<Path>>(path: P) -> Result<Shader, Error> {
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Shader::from_source(&CString::new(contents)?, gl::VERTEX_SHADER)
     }
 
-    pub fn from_frag_source(source: &CStr) -> Result<Shader, String> {
-        Shader::from_source(source, gl::FRAGMENT_SHADER)
+    pub fn from_frag_source<P: AsRef<Path>>(path: P) -> Result<Shader, Error> {
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Shader::from_source(&CString::new(contents)?, gl::FRAGMENT_SHADER)
     }
 
     pub fn id(&self) -> gl::types::GLuint {
@@ -138,7 +148,7 @@ impl Drop for Shader {
     }
 }
 
-fn shader_from_source(source: &CStr, kind: GLenum) -> Result<GLuint, String> {
+fn shader_from_source(source: &CStr, kind: GLenum) -> Result<GLuint, Error> {
     let id = unsafe { gl::CreateShader(kind) };
     unsafe {
         gl::ShaderSource(id, 1, &source.as_ptr(), std::ptr::null());
@@ -167,7 +177,7 @@ fn shader_from_source(source: &CStr, kind: GLenum) -> Result<GLuint, String> {
             );
         }
 
-        return Err(error.to_string_lossy().into_owned());
+        return Err(err_msg(error.to_string_lossy().into_owned()));
     }
 
     Ok(id)

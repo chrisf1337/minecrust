@@ -2,7 +2,6 @@
 out vec4 fragColor;
 
 in VtxOut {
-    vec3 pos;
     vec2 texCoord;
 } vtxOut;
 

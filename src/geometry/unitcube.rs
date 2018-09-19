@@ -1,5 +1,5 @@
+use geometry::square::Square;
 use na::{Isometry, Rotation3, Translation3};
-use square::Square;
 use std::f32::consts::{FRAC_PI_2, PI};
 use types::*;
 
@@ -82,7 +82,7 @@ impl UnitCube {
         let mut vertices = vec![];
         for sq in &self.squares {
             vertices.extend(
-                sq.vertices.iter().map(|v| {
+                sq.vertices().iter().map(|v| {
                     Point3f::from_homogeneous(self.transform * v.to_homogeneous()).unwrap()
                 }),
             );
