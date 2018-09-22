@@ -15,7 +15,7 @@ use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
 use minecrust::camera::Camera;
 use minecrust::event_handlers::on_device_event;
-use minecrust::geometry::{square::Square, unitcube::UnitCube};
+use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
 use minecrust::{debug, render, types::*, utils};
 use na::{Isometry, Perspective3, Rotation3, Translation3, Unit};
 use std::collections::HashSet;
@@ -75,6 +75,7 @@ fn main() -> Result<(), Error> {
         .with_dimensions(LogicalSize::new(1024., 768.));
     let screen_width = 1024;
     let screen_height = 768;
+    let aspect_ratio = screen_width as f32 / screen_height as f32;
     let context = glutin::ContextBuilder::new()
         .with_gl(GlRequest::Latest)
         .with_vsync(true);
@@ -124,11 +125,14 @@ fn main() -> Result<(), Error> {
     let crosshair_path = "assets/crosshair.png";
     let crosshair_img = image::open(crosshair_path)?.flipv().to_rgba();
     let crosshair_img_data: Vec<u8> = crosshair_img.clone().into_vec();
-    let crosshair_square = Square::new_with_transform(
-        0.1,
+    let crosshair_rect_height = 0.1;
+    let crosshair_rect_width = crosshair_rect_height / aspect_ratio;
+    let crosshair_rect = Rectangle::new_with_transform(
+        crosshair_rect_width,
+        crosshair_rect_height,
         &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_homogeneous(),
     );
-    let crosshair_square_vertices = crosshair_square.vtx_data(&Matrix4f::identity());
+    let crosshair_rect_vertices = crosshair_rect.vtx_data(&Matrix4f::identity());
 
     let mut vaos: [GLuint; 2] = [0, 0];
     let mut vbos: [GLuint; 2] = [0, 0];
@@ -175,8 +179,8 @@ fn main() -> Result<(), Error> {
         gl::BindBuffer(gl::ARRAY_BUFFER, vbos[1]);
         gl::BufferData(
             gl::ARRAY_BUFFER,
-            (crosshair_square_vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
-            crosshair_square_vertices.as_ptr() as *const GLvoid,
+            (crosshair_rect_vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
+            crosshair_rect_vertices.as_ptr() as *const GLvoid,
             gl::STATIC_DRAW,
         );
 
@@ -332,7 +336,7 @@ fn main() -> Result<(), Error> {
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, textures[1]);
             gl::BindVertexArray(vaos[1]);
-            gl::DrawArrays(gl::TRIANGLES, 0, crosshair_square_vertices.len() as i32);
+            gl::DrawArrays(gl::TRIANGLES, 0, crosshair_rect_vertices.len() as i32);
         }
 
         gl_window.swap_buffers().unwrap();
