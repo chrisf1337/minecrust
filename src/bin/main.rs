@@ -78,6 +78,7 @@ fn main() -> Result<(), Error> {
     let aspect_ratio = screen_width as f32 / screen_height as f32;
     let context = glutin::ContextBuilder::new()
         .with_gl(GlRequest::Latest)
+        .with_multisampling(8)
         .with_vsync(true);
     let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
 
@@ -88,6 +89,7 @@ fn main() -> Result<(), Error> {
         gl::Viewport(0, 0, screen_width, screen_height);
         gl::Enable(gl::DEPTH_TEST);
         gl::Enable(gl::BLEND);
+        gl::Enable(gl::MULTISAMPLE);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
     }
 
@@ -115,7 +117,8 @@ fn main() -> Result<(), Error> {
         &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
     );
     let mut vertices = square.vtx_data(&Matrix4f::identity());
-    vertices.extend(cube1.vtx_data());
+    let cube1_vtxs = cube1.vtx_data();
+    vertices.extend(cube1_vtxs.clone());
     vertices.extend(cube2.vtx_data());
 
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
@@ -134,16 +137,21 @@ fn main() -> Result<(), Error> {
     );
     let crosshair_rect_vertices = crosshair_rect.vtx_data(&Matrix4f::identity());
 
-    let mut vaos: [GLuint; 2] = [0, 0];
-    let mut vbos: [GLuint; 2] = [0, 0];
-    let mut textures: [GLuint; 2] = [0, 0];
+    let selection_path = "assets/selection.png";
+    let selection_img = image::open(selection_path)?.flipv().to_rgba();
+    let selection_img_data: Vec<u8> = selection_img.clone().into_vec();
+
+    let mut vaos: [GLuint; 3] = [0; 3];
+    let mut vbos: [GLuint; 3] = [0; 3];
+    let mut textures: [GLuint; 3] = [0; 3];
     unsafe {
-        gl::GenVertexArrays(2, vaos.as_mut_ptr());
-        gl::GenBuffers(2, vbos.as_mut_ptr());
-        gl::GenTextures(2, textures.as_mut_ptr());
+        gl::GenVertexArrays(3, vaos.as_mut_ptr());
+        gl::GenBuffers(3, vbos.as_mut_ptr());
+        gl::GenTextures(3, textures.as_mut_ptr());
     }
     let cobblestone_texture = textures[0];
     let crosshair_texture = textures[1];
+    let selection_texture = textures[2];
 
     unsafe {
         gl::BindVertexArray(vaos[0]);
@@ -181,6 +189,35 @@ fn main() -> Result<(), Error> {
             gl::ARRAY_BUFFER,
             (crosshair_rect_vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
             crosshair_rect_vertices.as_ptr() as *const GLvoid,
+            gl::STATIC_DRAW,
+        );
+
+        gl::VertexAttribPointer(
+            0,         // index of the generic vertex attribute ("layout (location = 0)")
+            3,         // the number of components per generic vertex attribute
+            gl::FLOAT, // data type
+            gl::FALSE, // normalized (int-to-float conversion)
+            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
+            std::ptr::null(),                          // offset of the first component
+        );
+        gl::EnableVertexAttribArray(0); // this is "layout (location = 0)" in vertex shader
+
+        gl::VertexAttribPointer(
+            1,         // index of the generic vertex attribute ("layout (location = 1)")
+            2,         // the number of components per generic vertex attribute
+            gl::FLOAT, // data type
+            gl::FALSE, // normalized (int-to-float conversion)
+            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
+            (3 * std::mem::size_of::<f32>()) as *const GLvoid, // offset of the first component
+        );
+        gl::EnableVertexAttribArray(1); // this is "layout (location = 1)" in vertex shader
+
+        gl::BindVertexArray(vaos[2]);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbos[2]);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            (cube1_vtxs.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
+            cube1_vtxs.as_ptr() as *const GLvoid,
             gl::STATIC_DRAW,
         );
 
@@ -242,6 +279,25 @@ fn main() -> Result<(), Error> {
             gl::RGBA,
             gl::UNSIGNED_BYTE,
             crosshair_img_data.as_ptr() as *const GLvoid,
+        );
+        gl::GenerateMipmap(gl::TEXTURE_2D);
+
+        gl::BindTexture(gl::TEXTURE_2D, selection_texture);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32,
+            selection_img.width() as i32,
+            selection_img.height() as i32,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            selection_img_data.as_ptr() as *const GLvoid,
         );
         gl::GenerateMipmap(gl::TEXTURE_2D);
 
@@ -319,6 +375,10 @@ fn main() -> Result<(), Error> {
             }
         }
 
+        unsafe {
+            gl::DepthFunc(gl::LESS);
+        }
+
         shader_program.set_used();
         shader_program.set_mat4f("view", &camera.to_matrix());
         shader_program.set_mat4f("projection", &projection);
@@ -328,6 +388,14 @@ fn main() -> Result<(), Error> {
             gl::BindTexture(gl::TEXTURE_2D, textures[0]);
             gl::BindVertexArray(vaos[0]);
             gl::DrawArrays(gl::TRIANGLES, 0, vertices.len() as i32);
+        }
+
+        unsafe {
+            gl::DepthFunc(gl::LEQUAL);
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, textures[2]);
+            gl::BindVertexArray(vaos[2]);
+            gl::DrawArrays(gl::TRIANGLES, 0, cube1_vtxs.len() as i32);
         }
 
         crosshair_shader_program.set_used();
