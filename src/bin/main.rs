@@ -9,15 +9,20 @@ extern crate minecrust;
 #[macro_use]
 extern crate failure_derive;
 extern crate nalgebra as na;
+extern crate specs;
 
 use failure::{err_msg, Error};
 use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
 use minecrust::camera::Camera;
+use minecrust::ecs::{PrimitiveGeometryComponent, TransformComponent};
 use minecrust::event_handlers::on_device_event;
 use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
+use minecrust::render::draw::{ArrayBuffer, AttributeFormat, VertexArrayObject};
+use minecrust::render::shader::{Program, Shader};
 use minecrust::{debug, render, types::*, utils};
 use na::{Isometry, Perspective3, Rotation3, Translation3, Unit};
+use specs::{Builder, World};
 use std::collections::HashSet;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI};
 use std::ffi::CString;
@@ -95,14 +100,14 @@ fn main() -> Result<(), Error> {
 
     debug::enable_debug_output();
 
-    let vert_shader = render::Shader::from_vert_source("src/shaders/triangle.vert")?;
-    let frag_shader = render::Shader::from_frag_source("src/shaders/triangle.frag")?;
-    let mut shader_program = render::Program::from_shaders(&[vert_shader, frag_shader])?;
+    let vert_shader = Shader::from_vert_source("src/shaders/triangle.vert")?;
+    let frag_shader = Shader::from_frag_source("src/shaders/triangle.frag")?;
+    let mut shader_program = Program::from_shaders(&[vert_shader, frag_shader])?;
 
-    let crosshair_vshader = render::Shader::from_vert_source("src/shaders/crosshair.vert")?;
-    let crosshair_fshader = render::Shader::from_frag_source("src/shaders/crosshair.frag")?;
+    let crosshair_vshader = Shader::from_vert_source("src/shaders/crosshair.vert")?;
+    let crosshair_fshader = Shader::from_frag_source("src/shaders/crosshair.frag")?;
     let mut crosshair_shader_program =
-        render::Program::from_shaders(&[crosshair_vshader, crosshair_fshader])?;
+        Program::from_shaders(&[crosshair_vshader, crosshair_fshader])?;
 
     unsafe {
         gl::Enable(gl::CULL_FACE);
@@ -110,8 +115,6 @@ fn main() -> Result<(), Error> {
     }
 
     let cube1 = UnitCube::new(1.0);
-    let mut cube2 = UnitCube::new(1.0);
-    cube2.transform(&Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous());
     let square = Square::new_with_transform(
         100.0,
         &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
@@ -119,7 +122,6 @@ fn main() -> Result<(), Error> {
     let mut vertices = square.vtx_data(&Matrix4f::identity());
     let cube1_vtxs = cube1.vtx_data();
     vertices.extend(cube1_vtxs.clone());
-    vertices.extend(cube2.vtx_data());
 
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
     let cobblestone_img = image::open(cobblestone_path)?.flipv().to_rgba();
@@ -140,6 +142,43 @@ fn main() -> Result<(), Error> {
     let selection_path = "assets/selection.png";
     let selection_img = image::open(selection_path)?.flipv().to_rgba();
     let selection_img_data: Vec<u8> = selection_img.clone().into_vec();
+
+    let cube2 = UnitCube::new_with_transform(
+        1.0,
+        &Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous(),
+    );
+    let cube3 = UnitCube::new_with_transform(
+        1.0,
+        &Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_homogeneous(),
+    );
+    let mut buffer = ArrayBuffer::new(cube2.vtx_data());
+    buffer.extend(&cube3.vtx_data());
+    let mut vao = VertexArrayObject::default();
+    vao.add_attribute(AttributeFormat {
+        location: 0,
+        n_components: 3,
+        normalized: false,
+    });
+    vao.add_attribute(AttributeFormat {
+        location: 1,
+        n_components: 2,
+        normalized: false,
+    });
+    vao.add_buffer(buffer);
+    vao.gl_init();
+    vao.gl_setup_attributes();
+    vao.gl_bind_all_buffers();
+
+    let mut world = World::new();
+    world.register::<TransformComponent>();
+    world.register::<PrimitiveGeometryComponent>();
+
+    let cube = world
+        .create_entity()
+        .with(TransformComponent::new(Matrix4f::identity()))
+        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
+            1.0,
+        )));
 
     let mut vaos: [GLuint; 3] = [0; 3];
     let mut vbos: [GLuint; 3] = [0; 3];
@@ -350,10 +389,10 @@ fn main() -> Result<(), Error> {
         // Negate deltas because positive x is decreasing yaw, and positive y (origin for mouse
         // events is at upper left) is decreasing pitch.
         camera.rotate((-d_yaw, -d_pitch));
-        if !utils::f32_almost_eq(d_yaw, 0.0) && !utils::f32_almost_eq(d_pitch, 0.0) {
-            println!("{:#?}", camera);
-            println!("{:?}", mouse_delta);
-        }
+        // if !utils::f32_almost_eq(d_yaw, 0.0) && !utils::f32_almost_eq(d_pitch, 0.0) {
+        //     println!("{:#?}", camera);
+        //     println!("{:?}", mouse_delta);
+        // }
 
         let camera_speed = 3.0 * delta_time;
         for keycode in &pressed_keys {
@@ -389,6 +428,12 @@ fn main() -> Result<(), Error> {
             gl::BindVertexArray(vaos[0]);
             gl::DrawArrays(gl::TRIANGLES, 0, vertices.len() as i32);
         }
+
+        unsafe {
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, textures[0]);
+        }
+        vao.gl_draw();
 
         unsafe {
             gl::DepthFunc(gl::LEQUAL);

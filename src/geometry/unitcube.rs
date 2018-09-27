@@ -66,6 +66,12 @@ impl UnitCube {
         }
     }
 
+    pub fn new_with_transform(side_len: f32, transform: &Matrix4f) -> UnitCube {
+        let mut cube = UnitCube::new(side_len);
+        cube.transform(transform);
+        cube
+    }
+
     pub fn transform(&mut self, transform: &Matrix4f) {
         self.transform = transform * self.transform;
     }
