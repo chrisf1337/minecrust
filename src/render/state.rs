@@ -2,7 +2,6 @@ use gl;
 use gl::types::*;
 use std;
 use std::collections::HashSet;
-use types::*;
 
 #[derive(Debug)]
 pub struct AttributeFormat {
@@ -43,7 +42,11 @@ impl ArrayBuffer {
         self.buf.len()
     }
 
-    pub fn extend(&mut self, other: &Vec<f32>) {
+    pub fn is_empty(&self) -> bool {
+        self.buf.is_empty()
+    }
+
+    pub fn extend(&mut self, other: &[f32]) {
         self.buf.extend(other)
     }
 }
@@ -110,4 +113,10 @@ impl VertexArrayObject {
             gl::DrawArrays(gl::TRIANGLES, 0, self.total_buffer_len as i32);
         }
     }
+}
+
+#[derive(Default)]
+pub struct RenderState {
+    pub vaos: Vec<VertexArrayObject>,
+    pub bufs: Vec<ArrayBuffer>,
 }

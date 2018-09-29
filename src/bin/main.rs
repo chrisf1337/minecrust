@@ -18,15 +18,14 @@ use minecrust::camera::Camera;
 use minecrust::ecs::{PrimitiveGeometryComponent, TransformComponent};
 use minecrust::event_handlers::on_device_event;
 use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
-use minecrust::render::draw::{ArrayBuffer, AttributeFormat, VertexArrayObject};
 use minecrust::render::shader::{Program, Shader};
-use minecrust::{debug, render, types::*, utils};
-use na::{Isometry, Perspective3, Rotation3, Translation3, Unit};
+use minecrust::render::state::{ArrayBuffer, AttributeFormat, VertexArrayObject};
+use minecrust::{debug, types::*};
+use na::{Perspective3, Rotation3, Translation3};
 use specs::{Builder, World};
 use std::collections::HashSet;
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI};
-use std::ffi::CString;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::f32::consts::FRAC_PI_2;
+use std::time::SystemTime;
 
 #[derive(Fail, Debug)]
 enum MainError {
@@ -114,15 +113,6 @@ fn main() -> Result<(), Error> {
         gl::CullFace(gl::BACK);
     }
 
-    let cube1 = UnitCube::new(1.0);
-    let square = Square::new_with_transform(
-        100.0,
-        &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
-    );
-    let mut vertices = square.vtx_data(&Matrix4f::identity());
-    let cube1_vtxs = cube1.vtx_data();
-    vertices.extend(cube1_vtxs.clone());
-
     let cobblestone_path = "assets/cobblestone-border-arrow.png";
     let cobblestone_img = image::open(cobblestone_path)?.flipv().to_rgba();
     let cobblestone_img_data: Vec<u8> = cobblestone_img.clone().into_vec();
@@ -137,22 +127,28 @@ fn main() -> Result<(), Error> {
         crosshair_rect_height,
         &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_homogeneous(),
     );
-    let crosshair_rect_vertices = crosshair_rect.vtx_data(&Matrix4f::identity());
 
     let selection_path = "assets/selection.png";
     let selection_img = image::open(selection_path)?.flipv().to_rgba();
     let selection_img_data: Vec<u8> = selection_img.clone().into_vec();
 
-    let cube2 = UnitCube::new_with_transform(
-        1.0,
-        &Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous(),
+    let square = Square::new_with_transform(
+        100.0,
+        &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
     );
-    let cube3 = UnitCube::new_with_transform(
-        1.0,
-        &Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_homogeneous(),
+    let cube1 = UnitCube::new(1.0);
+    let cube2 = UnitCube::new(1.0);
+    let cube3 = UnitCube::new(1.0);
+    let cube1_vtxs = cube1.vtx_data(&Matrix4f::identity());
+    let mut buffer = ArrayBuffer::new(
+        cube2.vtx_data(&Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous()),
     );
-    let mut buffer = ArrayBuffer::new(cube2.vtx_data());
-    buffer.extend(&cube3.vtx_data());
+    buffer.extend(&cube1_vtxs);
+    buffer.extend(&square.vtx_data(&Matrix4f::identity()));
+    buffer.extend(
+        &cube3
+            .vtx_data(&Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_homogeneous()),
+    );
     let mut vao = VertexArrayObject::default();
     vao.add_attribute(AttributeFormat {
         location: 0,
@@ -168,6 +164,40 @@ fn main() -> Result<(), Error> {
     vao.gl_init();
     vao.gl_setup_attributes();
     vao.gl_bind_all_buffers();
+
+    let mut selection_vao = VertexArrayObject::default();
+    let selection_buffer = ArrayBuffer::new(cube1_vtxs);
+    selection_vao.add_attribute(AttributeFormat {
+        location: 0,
+        n_components: 3,
+        normalized: false,
+    });
+    selection_vao.add_attribute(AttributeFormat {
+        location: 1,
+        n_components: 2,
+        normalized: false,
+    });
+    selection_vao.add_buffer(selection_buffer);
+    selection_vao.gl_init();
+    selection_vao.gl_setup_attributes();
+    selection_vao.gl_bind_all_buffers();
+
+    let mut crosshair_vao = VertexArrayObject::default();
+    let crosshair_buffer = ArrayBuffer::new(crosshair_rect.vtx_data(&Matrix4f::identity()));
+    crosshair_vao.add_attribute(AttributeFormat {
+        location: 0,
+        n_components: 3,
+        normalized: false,
+    });
+    crosshair_vao.add_attribute(AttributeFormat {
+        location: 1,
+        n_components: 2,
+        normalized: false,
+    });
+    crosshair_vao.add_buffer(crosshair_buffer);
+    crosshair_vao.gl_init();
+    crosshair_vao.gl_setup_attributes();
+    crosshair_vao.gl_bind_all_buffers();
 
     let mut world = World::new();
     world.register::<TransformComponent>();
@@ -193,96 +223,6 @@ fn main() -> Result<(), Error> {
     let selection_texture = textures[2];
 
     unsafe {
-        gl::BindVertexArray(vaos[0]);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbos[0]);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,                                            // target
-            (vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr, // size of data in bytes
-            vertices.as_ptr() as *const GLvoid,                          // pointer to data
-            gl::STATIC_DRAW,                                             // usage
-        );
-
-        gl::VertexAttribPointer(
-            0,         // index of the generic vertex attribute ("layout (location = 0)")
-            3,         // the number of components per generic vertex attribute
-            gl::FLOAT, // data type
-            gl::FALSE, // normalized (int-to-float conversion)
-            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
-            std::ptr::null(),                          // offset of the first component
-        );
-        gl::EnableVertexAttribArray(0); // this is "layout (location = 0)" in vertex shader
-
-        gl::VertexAttribPointer(
-            1,         // index of the generic vertex attribute ("layout (location = 1)")
-            2,         // the number of components per generic vertex attribute
-            gl::FLOAT, // data type
-            gl::FALSE, // normalized (int-to-float conversion)
-            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
-            (3 * std::mem::size_of::<f32>()) as *const GLvoid, // offset of the first component
-        );
-        gl::EnableVertexAttribArray(1); // this is "layout (location = 1)" in vertex shader
-
-        gl::BindVertexArray(vaos[1]);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbos[1]);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            (crosshair_rect_vertices.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
-            crosshair_rect_vertices.as_ptr() as *const GLvoid,
-            gl::STATIC_DRAW,
-        );
-
-        gl::VertexAttribPointer(
-            0,         // index of the generic vertex attribute ("layout (location = 0)")
-            3,         // the number of components per generic vertex attribute
-            gl::FLOAT, // data type
-            gl::FALSE, // normalized (int-to-float conversion)
-            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
-            std::ptr::null(),                          // offset of the first component
-        );
-        gl::EnableVertexAttribArray(0); // this is "layout (location = 0)" in vertex shader
-
-        gl::VertexAttribPointer(
-            1,         // index of the generic vertex attribute ("layout (location = 1)")
-            2,         // the number of components per generic vertex attribute
-            gl::FLOAT, // data type
-            gl::FALSE, // normalized (int-to-float conversion)
-            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
-            (3 * std::mem::size_of::<f32>()) as *const GLvoid, // offset of the first component
-        );
-        gl::EnableVertexAttribArray(1); // this is "layout (location = 1)" in vertex shader
-
-        gl::BindVertexArray(vaos[2]);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbos[2]);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            (cube1_vtxs.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
-            cube1_vtxs.as_ptr() as *const GLvoid,
-            gl::STATIC_DRAW,
-        );
-
-        gl::VertexAttribPointer(
-            0,         // index of the generic vertex attribute ("layout (location = 0)")
-            3,         // the number of components per generic vertex attribute
-            gl::FLOAT, // data type
-            gl::FALSE, // normalized (int-to-float conversion)
-            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
-            std::ptr::null(),                          // offset of the first component
-        );
-        gl::EnableVertexAttribArray(0); // this is "layout (location = 0)" in vertex shader
-
-        gl::VertexAttribPointer(
-            1,         // index of the generic vertex attribute ("layout (location = 1)")
-            2,         // the number of components per generic vertex attribute
-            gl::FLOAT, // data type
-            gl::FALSE, // normalized (int-to-float conversion)
-            (5 * std::mem::size_of::<f32>()) as GLint, // stride (byte offset between consecutive attributes)
-            (3 * std::mem::size_of::<f32>()) as *const GLvoid, // offset of the first component
-        );
-        gl::EnableVertexAttribArray(1); // this is "layout (location = 1)" in vertex shader
-
-        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
-        gl::BindVertexArray(0);
-
         gl::BindTexture(gl::TEXTURE_2D, cobblestone_texture);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
@@ -349,7 +289,8 @@ fn main() -> Result<(), Error> {
         f32::to_radians(45.),
         0.1,
         100.,
-    ).to_homogeneous();
+    )
+    .to_homogeneous();
 
     shader_program.set_used();
     shader_program.set_int("tex", 0); // gl::TEXTURE0
@@ -425,13 +366,6 @@ fn main() -> Result<(), Error> {
         unsafe {
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, textures[0]);
-            gl::BindVertexArray(vaos[0]);
-            gl::DrawArrays(gl::TRIANGLES, 0, vertices.len() as i32);
-        }
-
-        unsafe {
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, textures[0]);
         }
         vao.gl_draw();
 
@@ -439,18 +373,16 @@ fn main() -> Result<(), Error> {
             gl::DepthFunc(gl::LEQUAL);
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, textures[2]);
-            gl::BindVertexArray(vaos[2]);
-            gl::DrawArrays(gl::TRIANGLES, 0, cube1_vtxs.len() as i32);
         }
+        selection_vao.gl_draw();
 
         crosshair_shader_program.set_used();
         unsafe {
             gl::Clear(gl::DEPTH_BUFFER_BIT);
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, textures[1]);
-            gl::BindVertexArray(vaos[1]);
-            gl::DrawArrays(gl::TRIANGLES, 0, crosshair_rect_vertices.len() as i32);
         }
+        crosshair_vao.gl_draw();
 
         gl_window.swap_buffers().unwrap();
         unsafe {
