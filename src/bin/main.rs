@@ -1,4 +1,4 @@
-#![feature(tool_lints, custom_attribute, duration_as_u128)]
+#![feature(tool_lints, custom_attribute)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
 extern crate failure;
@@ -15,16 +15,16 @@ use failure::{err_msg, Error};
 use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
 use minecrust::camera::Camera;
-use minecrust::ecs::{PrimitiveGeometryComponent, TransformComponent};
+use minecrust::ecs::{PrimitiveGeometryComponent, RenderSystem, TransformComponent};
 use minecrust::event_handlers::on_device_event;
 use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
 use minecrust::render::shader::{Program, Shader};
-use minecrust::render::state::{ArrayBuffer, AttributeFormat, VertexArrayObject};
+use minecrust::render::state::{ArrayBuffer, AttributeFormat, RenderState, VertexArrayObject};
 use minecrust::{debug, types::*};
 use na::{Perspective3, Rotation3, Translation3};
-use specs::{Builder, World};
-use std::collections::HashSet;
+use specs::{Builder, DispatcherBuilder, World};
 use std::f32::consts::FRAC_PI_2;
+use std::ops::DerefMut;
 use std::time::SystemTime;
 
 #[derive(Fail, Debug)]
@@ -132,41 +132,10 @@ fn main() -> Result<(), Error> {
     let selection_img = image::open(selection_path)?.flipv().to_rgba();
     let selection_img_data: Vec<u8> = selection_img.clone().into_vec();
 
-    let square = Square::new_with_transform(
-        100.0,
-        &Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
-    );
     let cube1 = UnitCube::new(1.0);
-    let cube2 = UnitCube::new(1.0);
-    let cube3 = UnitCube::new(1.0);
     let cube1_vtxs = cube1.vtx_data(&Matrix4f::identity());
-    let mut buffer = ArrayBuffer::new(
-        cube2.vtx_data(&Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous()),
-    );
-    buffer.extend(&cube1_vtxs);
-    buffer.extend(&square.vtx_data(&Matrix4f::identity()));
-    buffer.extend(
-        &cube3
-            .vtx_data(&Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_homogeneous()),
-    );
-    let mut vao = VertexArrayObject::default();
-    vao.add_attribute(AttributeFormat {
-        location: 0,
-        n_components: 3,
-        normalized: false,
-    });
-    vao.add_attribute(AttributeFormat {
-        location: 1,
-        n_components: 2,
-        normalized: false,
-    });
-    vao.add_buffer(buffer);
-    vao.gl_init();
-    vao.gl_setup_attributes();
-    vao.gl_bind_all_buffers();
 
     let mut selection_vao = VertexArrayObject::default();
-    let selection_buffer = ArrayBuffer::new(cube1_vtxs);
     selection_vao.add_attribute(AttributeFormat {
         location: 0,
         n_components: 3,
@@ -177,13 +146,14 @@ fn main() -> Result<(), Error> {
         n_components: 2,
         normalized: false,
     });
-    selection_vao.add_buffer(selection_buffer);
     selection_vao.gl_init();
     selection_vao.gl_setup_attributes();
-    selection_vao.gl_bind_all_buffers();
+    selection_vao.buffer.set_buf(cube1_vtxs);
+    selection_vao.buffer.gl_init();
+    selection_vao.buffer.gl_bind();
+    selection_vao.gl_set_binding();
 
     let mut crosshair_vao = VertexArrayObject::default();
-    let crosshair_buffer = ArrayBuffer::new(crosshair_rect.vtx_data(&Matrix4f::identity()));
     crosshair_vao.add_attribute(AttributeFormat {
         location: 0,
         n_components: 3,
@@ -194,28 +164,18 @@ fn main() -> Result<(), Error> {
         n_components: 2,
         normalized: false,
     });
-    crosshair_vao.add_buffer(crosshair_buffer);
     crosshair_vao.gl_init();
     crosshair_vao.gl_setup_attributes();
-    crosshair_vao.gl_bind_all_buffers();
+    {
+        let crosshair_buffer = &mut crosshair_vao.buffer;
+        crosshair_buffer.set_buf(crosshair_rect.vtx_data(&Matrix4f::identity()));
+        crosshair_buffer.gl_init();
+        crosshair_buffer.gl_bind();
+    }
+    crosshair_vao.gl_set_binding();
 
-    let mut world = World::new();
-    world.register::<TransformComponent>();
-    world.register::<PrimitiveGeometryComponent>();
-
-    let cube = world
-        .create_entity()
-        .with(TransformComponent::new(Matrix4f::identity()))
-        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
-            1.0,
-        )));
-
-    let mut vaos: [GLuint; 3] = [0; 3];
-    let mut vbos: [GLuint; 3] = [0; 3];
     let mut textures: [GLuint; 3] = [0; 3];
     unsafe {
-        gl::GenVertexArrays(3, vaos.as_mut_ptr());
-        gl::GenBuffers(3, vbos.as_mut_ptr());
         gl::GenTextures(3, textures.as_mut_ptr());
     }
     let cobblestone_texture = textures[0];
@@ -283,7 +243,7 @@ fn main() -> Result<(), Error> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let mut camera = Camera::new_with_target(Point3f::new(3.0, 0.0, -3.0), Point3f::origin());
+    let camera = Camera::new_with_target(Point3f::new(3.0, 0.0, -3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -299,90 +259,116 @@ fn main() -> Result<(), Error> {
 
     let mut running = true;
     let mut focused = true;
-    let mut pressed_keys = HashSet::new();
     let mut last_frame_time = SystemTime::now();
+
+    let mut vao = VertexArrayObject::default();
+    vao.add_attribute(AttributeFormat {
+        location: 0,
+        n_components: 3,
+        normalized: false,
+    });
+    vao.add_attribute(AttributeFormat {
+        location: 1,
+        n_components: 2,
+        normalized: false,
+    });
+    vao.buffer.gl_init();
+    vao.gl_init();
+    vao.gl_setup_attributes();
+    vao.gl_set_binding();
+
+    let mut render_state = RenderState::new(
+        camera,
+        shader_program,
+        crosshair_shader_program,
+        cobblestone_texture,
+        selection_texture,
+        crosshair_texture,
+        projection,
+    );
+    render_state.vao = vao;
+    render_state.selection_vao = selection_vao;
+    render_state.crosshair_vao = crosshair_vao;
+
+    let mut world = World::new();
+    world.register::<TransformComponent>();
+    world.register::<PrimitiveGeometryComponent>();
+    world.add_resource(render_state);
+    let mut dispatcher = DispatcherBuilder::new()
+        .with_thread_local(RenderSystem)
+        .build();
+
+    // square
+    world
+        .create_entity()
+        .with(TransformComponent::new(
+            Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
+        ))
+        .with(PrimitiveGeometryComponent::new_square(Square::new(100.0)))
+        .build();
+    // cube 1
+    world
+        .create_entity()
+        .with(TransformComponent::new(Matrix4f::identity()))
+        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
+            1.0,
+        )))
+        .build();
+    // cube 2
+    world
+        .create_entity()
+        .with(TransformComponent::new(
+            Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous(),
+        ))
+        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
+            1.0,
+        )))
+        .build();
+    // cube 3
+    world
+        .create_entity()
+        .with(TransformComponent::new(
+            Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_homogeneous(),
+        ))
+        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
+            1.0,
+        )))
+        .build();
+
     while running {
-        let mut mouse_delta = (0.0f64, 0.0f64);
-        if focused {
-            gl_window.grab_cursor(true).map_err(err_msg)?;
-            gl_window.hide_cursor(true);
-        }
         let current_frame_time = SystemTime::now();
-        let delta_time = current_frame_time
-            .duration_since(last_frame_time)?
-            .as_nanos() as f32
-            / 1.0e9;
+        let frame_time_delta = current_frame_time.duration_since(last_frame_time)?;
         last_frame_time = current_frame_time;
-        events_loop.poll_events(|event| match event {
-            Event::DeviceEvent { event, .. } => {
-                on_device_event(&event, &mut pressed_keys, &mut mouse_delta)
+        let mut mouse_delta = (0.0f64, 0.0f64);
+        {
+            let mut render_state = world.write_resource::<RenderState>();
+            let render_state = render_state.deref_mut();
+            let pressed_keys = &mut render_state.pressed_keys;
+
+            if focused {
+                gl_window.grab_cursor(true).map_err(err_msg)?;
+                gl_window.hide_cursor(true);
             }
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => running = false,
-                WindowEvent::Focused(f) => focused = f,
+            events_loop.poll_events(|event| match event {
+                Event::DeviceEvent { event, .. } => {
+                    on_device_event(&event, pressed_keys, &mut mouse_delta);
+                    if pressed_keys.contains(&VirtualKeyCode::Escape) && focused {
+                        running = false;
+                    }
+                }
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => running = false,
+                    WindowEvent::Focused(f) => focused = f,
+                    _ => (),
+                },
                 _ => (),
-            },
-            _ => (),
-        });
+            });
 
-        let d_yaw = mouse_delta.0 as f32 / 500.0;
-        let d_pitch = mouse_delta.1 as f32 / 500.0;
-        // Negate deltas because positive x is decreasing yaw, and positive y (origin for mouse
-        // events is at upper left) is decreasing pitch.
-        camera.rotate((-d_yaw, -d_pitch));
-        // if !utils::f32_almost_eq(d_yaw, 0.0) && !utils::f32_almost_eq(d_pitch, 0.0) {
-        //     println!("{:#?}", camera);
-        //     println!("{:?}", mouse_delta);
-        // }
-
-        let camera_speed = 3.0 * delta_time;
-        for keycode in &pressed_keys {
-            match keycode {
-                VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),
-                VirtualKeyCode::S => camera.pos -= camera_speed * camera.direction().unwrap(),
-                VirtualKeyCode::A => {
-                    let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
-                    camera.pos -= delta;
-                }
-                VirtualKeyCode::D => {
-                    let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
-                    camera.pos += delta;
-                }
-                VirtualKeyCode::Escape => {
-                    running = false;
-                }
-                _ => (),
-            }
+            render_state.mouse_delta = mouse_delta;
+            render_state.frame_time_delta = frame_time_delta;
         }
-
-        unsafe {
-            gl::DepthFunc(gl::LESS);
-        }
-
-        shader_program.set_used();
-        shader_program.set_mat4f("view", &camera.to_matrix());
-        shader_program.set_mat4f("projection", &projection);
-
-        unsafe {
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, textures[0]);
-        }
-        vao.gl_draw();
-
-        unsafe {
-            gl::DepthFunc(gl::LEQUAL);
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, textures[2]);
-        }
-        selection_vao.gl_draw();
-
-        crosshair_shader_program.set_used();
-        unsafe {
-            gl::Clear(gl::DEPTH_BUFFER_BIT);
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, textures[1]);
-        }
-        crosshair_vao.gl_draw();
+        dispatcher.dispatch(&world.res);
+        world.maintain();
 
         gl_window.swap_buffers().unwrap();
         unsafe {

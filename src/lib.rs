@@ -1,4 +1,4 @@
-#![feature(tool_lints, custom_attribute)]
+#![feature(tool_lints, custom_attribute, duration_as_u128)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
 
@@ -9,6 +9,7 @@ extern crate nalgebra as na;
 extern crate specs;
 #[macro_use]
 extern crate specs_derive;
+extern crate num_traits;
 
 pub mod bvh;
 pub mod camera;

@@ -4,7 +4,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use types::*;
 use utils;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Camera {
     pub pos: Point3f,
     direction: Unit<Vector3f>,
@@ -12,6 +12,12 @@ pub struct Camera {
     right: Unit<Vector3f>,
     yaw: f32,
     pitch: f32,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Camera::new(Point3f::origin(), -Vector3f::z_axis(), Vector3f::y_axis())
+    }
 }
 
 impl Camera {
