@@ -1,7 +1,9 @@
 use geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
 use glutin::VirtualKeyCode;
 use render::state::RenderState;
-use specs::{DenseVecStorage, Join, ReadStorage, System, SystemData, VecStorage, WriteExpect};
+use specs::{
+    DenseVecStorage, Join, NullStorage, ReadStorage, System, SystemData, VecStorage, WriteExpect,
+};
 use std::ops::DerefMut;
 use types::*;
 
@@ -46,6 +48,10 @@ impl PrimitiveGeometryComponent {
     }
 }
 
+#[derive(Component, Default)]
+#[storage(NullStorage)]
+pub struct SelectedComponent;
+
 pub struct RenderSystem;
 
 impl<'a> System<'a> for RenderSystem {
@@ -56,7 +62,7 @@ impl<'a> System<'a> for RenderSystem {
     );
 
     fn run(&mut self, (transform, geometry, mut render_state): Self::SystemData) {
-        let mut render_state = render_state.deref_mut();
+        let render_state = render_state.deref_mut();
         let RenderState {
             ref mut vao,
             ref mut selection_vao,
@@ -101,7 +107,7 @@ impl<'a> System<'a> for RenderSystem {
         }
 
         vao.buffer.set_buf(vtx_buf);
-        vao.buffer.gl_bind();
+        vao.buffer.gl_bind(GlBufferUsage::DynamicDraw);
 
         unsafe {
             gl::DepthFunc(gl::LESS);

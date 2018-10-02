@@ -38,14 +38,14 @@ impl ArrayBuffer {
         }
     }
 
-    pub fn gl_bind(&mut self) {
+    pub fn gl_bind(&mut self, usage: GlBufferUsage) {
         if !self.bound {
             unsafe {
                 gl::NamedBufferData(
                     self.id,
                     (self.buf.len() * std::mem::size_of::<f32>()) as GLsizeiptr,
                     self.buf.as_ptr() as *const GLvoid,
-                    gl::STREAM_DRAW,
+                    usage.into(),
                 );
             }
             self.bound = true;

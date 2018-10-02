@@ -150,7 +150,7 @@ fn main() -> Result<(), Error> {
     selection_vao.gl_setup_attributes();
     selection_vao.buffer.set_buf(cube1_vtxs);
     selection_vao.buffer.gl_init();
-    selection_vao.buffer.gl_bind();
+    selection_vao.buffer.gl_bind(GlBufferUsage::DynamicDraw);
     selection_vao.gl_set_binding();
 
     let mut crosshair_vao = VertexArrayObject::default();
@@ -170,7 +170,7 @@ fn main() -> Result<(), Error> {
         let crosshair_buffer = &mut crosshair_vao.buffer;
         crosshair_buffer.set_buf(crosshair_rect.vtx_data(&Matrix4f::identity()));
         crosshair_buffer.gl_init();
-        crosshair_buffer.gl_bind();
+        crosshair_buffer.gl_bind(GlBufferUsage::StaticDraw);
     }
     crosshair_vao.gl_set_binding();
 
