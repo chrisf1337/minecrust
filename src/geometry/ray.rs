@@ -1,7 +1,7 @@
-use geometry::boundingbox::BoundingBox;
+use crate::geometry::boundingbox::BoundingBox;
 use std::f32;
 use std::mem;
-use types::*;
+use crate::types::*;
 
 pub struct Ray {
     pub origin: Point3f,
@@ -64,7 +64,7 @@ impl Ray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use utils::pt3f_almost_eq;
+    use crate::utils::pt3f_almost_eq;
 
     #[test]
     fn test_intersect1() {

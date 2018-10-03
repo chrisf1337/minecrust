@@ -1,4 +1,4 @@
-use types::{Matrix4f, Point3f, Vector3f, Vector4f};
+use crate::types::{Matrix4f, Point3f, Vector3f, Vector4f};
 
 pub fn mat4f_col_to_vec4f(m: &Matrix4f, c: usize) -> Vector4f {
     let col = m.column(c);

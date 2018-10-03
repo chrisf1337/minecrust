@@ -1,6 +1,6 @@
 use gl::types::GLenum;
 use gl::*;
-use na::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector3, Vector4};
+use crate::na::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector3, Vector4};
 
 pub type Matrix4f = Matrix4<f32>;
 pub type Vector3f = Vector3<f32>;

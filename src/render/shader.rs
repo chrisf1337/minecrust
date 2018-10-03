@@ -6,7 +6,7 @@ use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use types::*;
+use crate::types::*;
 
 pub struct Program {
     id: gl::types::GLuint,

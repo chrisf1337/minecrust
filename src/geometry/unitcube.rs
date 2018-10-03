@@ -1,7 +1,7 @@
-use geometry::square::Square;
-use na::{Isometry, Rotation3, Translation3};
+use crate::geometry::square::Square;
+use crate::na::{Isometry, Rotation3, Translation3};
 use std::f32::consts::{FRAC_PI_2, PI};
-use types::*;
+use crate::types::*;
 
 pub struct UnitCube {
     side_len: f32,

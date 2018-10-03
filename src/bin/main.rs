@@ -21,7 +21,7 @@ use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCu
 use minecrust::render::shader::{Program, Shader};
 use minecrust::render::state::{ArrayBuffer, AttributeFormat, RenderState, VertexArrayObject};
 use minecrust::{debug, types::*};
-use na::{Perspective3, Rotation3, Translation3};
+use crate::na::{Perspective3, Rotation3, Translation3};
 use specs::{Builder, DispatcherBuilder, World};
 use std::f32::consts::FRAC_PI_2;
 use std::ops::DerefMut;

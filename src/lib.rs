@@ -21,4 +21,4 @@ pub mod render;
 pub mod types;
 pub mod utils;
 
-pub use types::*;
+pub use crate::types::*;

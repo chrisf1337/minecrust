@@ -1,13 +1,13 @@
-use camera::Camera;
+use crate::camera::Camera;
 use gl;
 use gl::types::*;
 use glutin;
 use num_traits::Zero;
-use render::shader::Program;
+use crate::render::shader::Program;
 use std;
 use std::collections::HashSet;
 use std::time::Duration;
-use types::*;
+use crate::types::*;
 
 #[derive(Debug)]
 pub struct AttributeFormat {

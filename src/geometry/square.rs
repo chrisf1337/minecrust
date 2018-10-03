@@ -1,5 +1,5 @@
-use geometry::rectangle::Rectangle;
-use types::{Matrix4f, Point3f, Vector3f};
+use crate::geometry::rectangle::Rectangle;
+use crate::types::{Matrix4f, Point3f, Vector3f};
 
 pub struct Square {
     rect: Rectangle,
@@ -38,9 +38,9 @@ impl Square {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use na::geometry::Isometry;
-    use na::{Rotation3, Translation3};
-    use utils;
+    use crate::na::geometry::Isometry;
+    use crate::na::{Rotation3, Translation3};
+    use crate::utils;
 
     #[test]
     fn test_transform1() {

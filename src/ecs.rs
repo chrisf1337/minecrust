@@ -1,11 +1,11 @@
-use geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
+use crate::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
 use glutin::VirtualKeyCode;
-use render::state::RenderState;
+use crate::render::state::RenderState;
 use specs::{
     DenseVecStorage, Join, NullStorage, ReadStorage, System, SystemData, VecStorage, WriteExpect,
 };
 use std::ops::DerefMut;
-use types::*;
+use crate::types::*;
 
 #[derive(Component, Debug)]
 #[storage(VecStorage)]

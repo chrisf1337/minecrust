@@ -1,4 +1,4 @@
-use types::{Matrix4f, Point3f};
+use crate::types::{Matrix4f, Point3f};
 
 /// A 2d rectangle along the xz plane.
 pub struct Rectangle {
@@ -89,10 +89,10 @@ impl Rectangle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use na::geometry::Isometry;
-    use na::{Rotation3, Translation3};
-    use types::Vector3f;
-    use utils;
+    use crate::na::geometry::Isometry;
+    use crate::na::{Rotation3, Translation3};
+    use crate::types::Vector3f;
+    use crate::utils;
 
     #[test]
     fn test_transform1() {
