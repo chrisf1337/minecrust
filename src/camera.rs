@@ -1,8 +1,8 @@
 use crate::na::Unit;
-use std::f32;
-use std::f32::consts::{FRAC_PI_2, PI};
 use crate::types::*;
 use crate::utils;
+use std::f32;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 #[derive(Debug, Clone)]
 pub struct Camera {

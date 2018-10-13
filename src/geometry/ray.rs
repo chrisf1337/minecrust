@@ -1,7 +1,7 @@
 use crate::geometry::boundingbox::BoundingBox;
+use crate::types::*;
 use std::f32;
 use std::mem;
-use crate::types::*;
 
 pub struct Ray {
     pub origin: Point3f,
@@ -18,8 +18,8 @@ impl Ray {
     }
 
     pub fn intersect(&self, bbox: &BoundingBox) -> Option<Point3f> {
-        let min = bbox.bounds[0];
-        let max = bbox.bounds[1];
+        let min = bbox.min;
+        let max = bbox.max;
 
         let mut tmin = (min.x - self.origin.x) / self.direction.x;
         let mut tmax = (max.x - self.origin.x) / self.direction.x;
@@ -69,10 +69,7 @@ mod tests {
     #[test]
     fn test_intersect1() {
         let r = Ray::new(Point3f::origin(), Vector3f::x());
-        let bbox = BoundingBox::new([
-            Vector3f::new(-1.0, -1.0, -1.0),
-            Vector3f::new(1.0, 1.0, 1.0),
-        ]);
+        let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect(&bbox);
         assert!(intersection.is_some());
         assert!(pt3f_almost_eq(
@@ -84,10 +81,7 @@ mod tests {
     #[test]
     fn test_intersect2() {
         let r = Ray::new(Point3f::new(-1.0, -0.5, 2.0), Vector3f::new(1.0, 0.0, -1.0));
-        let bbox = BoundingBox::new([
-            Vector3f::new(-1.0, -1.0, -1.0),
-            Vector3f::new(1.0, 1.0, 1.0),
-        ]);
+        let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect(&bbox);
         assert!(intersection.is_some());
         println!("{:?}", intersection);
@@ -100,10 +94,7 @@ mod tests {
     #[test]
     fn test_no_intersect() {
         let r = Ray::new(Point3f::new(2.0, 0.0, 0.0), Vector3f::x());
-        let bbox = BoundingBox::new([
-            Vector3f::new(-1.0, -1.0, -1.0),
-            Vector3f::new(1.0, 1.0, 1.0),
-        ]);
+        let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect(&bbox);
         assert!(intersection.is_none());
     }

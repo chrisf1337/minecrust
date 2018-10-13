@@ -1,20 +1,24 @@
-use crate::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
-use glutin::VirtualKeyCode;
-use crate::render::state::RenderState;
-use specs::{
-    DenseVecStorage, Join, NullStorage, ReadStorage, System, SystemData, VecStorage, WriteExpect,
+use crate::geometry::{
+    boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
 };
-use std::ops::DerefMut;
+use crate::render::state::RenderState;
 use crate::types::*;
+use glutin::VirtualKeyCode;
+use specs::prelude::*;
+use specs_derive::Component;
+use std::ops::DerefMut;
 
-#[derive(Component, Debug)]
-#[storage(VecStorage)]
+#[derive(Debug)]
 pub struct TransformComponent {
-    pub transform: Matrix4f,
+    pub transform: Transform3f,
+}
+
+impl Component for TransformComponent {
+    type Storage = FlaggedStorage<Self>;
 }
 
 impl TransformComponent {
-    pub fn new(transform: Matrix4f) -> TransformComponent {
+    pub fn new(transform: Transform3f) -> TransformComponent {
         TransformComponent { transform }
     }
 }
@@ -39,11 +43,62 @@ impl PrimitiveGeometryComponent {
         PrimitiveGeometryComponent::UnitCube(unit_cube)
     }
 
-    pub fn vtx_data(&self, transform: &Matrix4f) -> Vec<f32> {
+    pub fn vtx_data(&self, transform: &Transform3f) -> Vec<f32> {
         match self {
             PrimitiveGeometryComponent::Rectangle(rect) => rect.vtx_data(transform),
             PrimitiveGeometryComponent::Square(square) => square.vtx_data(transform),
             PrimitiveGeometryComponent::UnitCube(cube) => cube.vtx_data(transform),
+        }
+    }
+}
+
+pub struct BoundingBoxComponent {
+    pub bbox: BoundingBox,
+}
+
+impl Component for BoundingBoxComponent {
+    type Storage = FlaggedStorage<Self>;
+}
+
+pub struct BoundingBoxComponentSystem {
+    inserted_id: ReaderId<InsertedFlag>,
+    modified_id: ReaderId<ModifiedFlag>,
+    inserted: BitSet,
+    modified: BitSet,
+}
+
+impl BoundingBoxComponentSystem {
+    pub fn new(
+        inserted_id: ReaderId<InsertedFlag>,
+        modified_id: ReaderId<ModifiedFlag>,
+        inserted: BitSet,
+        modified: BitSet,
+    ) -> BoundingBoxComponentSystem {
+        BoundingBoxComponentSystem {
+            inserted_id,
+            modified_id,
+            inserted,
+            modified,
+        }
+    }
+}
+
+impl<'a> System<'a> for BoundingBoxComponentSystem {
+    type SystemData = (
+        Entities<'a>,
+        ReadStorage<'a, TransformComponent>,
+        WriteStorage<'a, BoundingBoxComponent>,
+    );
+
+    fn run(&mut self, (entities, transforms, mut bounding_boxes): Self::SystemData) {
+        self.inserted.clear();
+        self.modified.clear();
+
+        transforms.populate_inserted(&mut self.inserted_id, &mut self.inserted);
+        transforms.populate_modified(&mut self.modified_id, &mut self.modified);
+
+        for (entity, transform, _) in (&entities, &transforms, &self.inserted).join() {
+            println!("{:?}", transform);
         }
     }
 }

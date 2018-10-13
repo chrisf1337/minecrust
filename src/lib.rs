@@ -1,15 +1,8 @@
-#![feature(tool_lints, custom_attribute, duration_as_u128)]
+#![feature(custom_attribute, duration_as_u128)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
 
-extern crate failure;
-extern crate gl;
-extern crate glutin;
-extern crate nalgebra as na;
-extern crate specs;
-#[macro_use]
-extern crate specs_derive;
-extern crate num_traits;
+use nalgebra as na;
 
 pub mod bvh;
 pub mod camera;

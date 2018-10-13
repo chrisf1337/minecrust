@@ -32,3 +32,19 @@ pub fn mat4f_almost_eq(m1: &Matrix4f, m2: &Matrix4f) -> bool {
 pub fn vec3f_from_vec4f(v: &Vector4f) -> Vector3f {
     Vector3f::new(v.x, v.y, v.z)
 }
+
+pub fn pt3f_min(p1: &Point3f, p2: &Point3f) -> Point3f {
+    Point3f::new(
+        f32::min(p1.x, p2.x),
+        f32::min(p1.y, p2.y),
+        f32::min(p1.z, p2.z),
+    )
+}
+
+pub fn pt3f_max(p1: &Point3f, p2: &Point3f) -> Point3f {
+    Point3f::new(
+        f32::max(p1.x, p2.x),
+        f32::max(p1.y, p2.y),
+        f32::max(p1.z, p2.z),
+    )
+}

@@ -1,28 +1,26 @@
-#![feature(tool_lints, custom_attribute)]
+#![feature(custom_attribute)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
-extern crate failure;
-extern crate gl;
-extern crate glutin;
-extern crate image;
-extern crate minecrust;
-#[macro_use]
-extern crate failure_derive;
-extern crate nalgebra as na;
-extern crate specs;
 
+use nalgebra as na;
+
+use alga::general::SubsetOf;
+use crate::na::{Perspective3, Rotation3, Translation3};
 use failure::{err_msg, Error};
+use failure_derive::Fail;
 use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
 use minecrust::camera::Camera;
-use minecrust::ecs::{PrimitiveGeometryComponent, RenderSystem, TransformComponent};
+use minecrust::ecs::{
+    BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
+    TransformComponent,
+};
 use minecrust::event_handlers::on_device_event;
 use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
 use minecrust::render::shader::{Program, Shader};
-use minecrust::render::state::{ArrayBuffer, AttributeFormat, RenderState, VertexArrayObject};
+use minecrust::render::state::{AttributeFormat, RenderState, VertexArrayObject};
 use minecrust::{debug, types::*};
-use crate::na::{Perspective3, Rotation3, Translation3};
-use specs::{Builder, DispatcherBuilder, World};
+use specs::prelude::*;
 use std::f32::consts::FRAC_PI_2;
 use std::ops::DerefMut;
 use std::time::SystemTime;
@@ -125,7 +123,7 @@ fn main() -> Result<(), Error> {
     let crosshair_rect = Rectangle::new_with_transform(
         crosshair_rect_width,
         crosshair_rect_height,
-        &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_homogeneous(),
+        &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_superset(),
     );
 
     let selection_path = "assets/selection.png";
@@ -133,7 +131,7 @@ fn main() -> Result<(), Error> {
     let selection_img_data: Vec<u8> = selection_img.clone().into_vec();
 
     let cube1 = UnitCube::new(1.0);
-    let cube1_vtxs = cube1.vtx_data(&Matrix4f::identity());
+    let cube1_vtxs = cube1.vtx_data(&Transform3f::identity());
 
     let mut selection_vao = VertexArrayObject::default();
     selection_vao.add_attribute(AttributeFormat {
@@ -168,7 +166,7 @@ fn main() -> Result<(), Error> {
     crosshair_vao.gl_setup_attributes();
     {
         let crosshair_buffer = &mut crosshair_vao.buffer;
-        crosshair_buffer.set_buf(crosshair_rect.vtx_data(&Matrix4f::identity()));
+        crosshair_buffer.set_buf(crosshair_rect.vtx_data(&Transform3f::identity()));
         crosshair_buffer.gl_init();
         crosshair_buffer.gl_bind(GlBufferUsage::StaticDraw);
     }
@@ -293,23 +291,38 @@ fn main() -> Result<(), Error> {
     let mut world = World::new();
     world.register::<TransformComponent>();
     world.register::<PrimitiveGeometryComponent>();
+    world.register::<BoundingBoxComponent>();
     world.add_resource(render_state);
-    let mut dispatcher = DispatcherBuilder::new()
-        .with_thread_local(RenderSystem)
-        .build();
+
+    let mut dispatcher = {
+        let mut transform_components = world.write_storage::<TransformComponent>();
+        DispatcherBuilder::new()
+            .with(
+                BoundingBoxComponentSystem::new(
+                    transform_components.track_inserted(),
+                    transform_components.track_modified(),
+                    BitSet::new(),
+                    BitSet::new(),
+                ),
+                "BoundingBoxComponentSystem",
+                &[],
+            )
+            .with_thread_local(RenderSystem)
+            .build()
+    };
 
     // square
     world
         .create_entity()
         .with(TransformComponent::new(
-            Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_homogeneous(),
+            Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_superset(),
         ))
         .with(PrimitiveGeometryComponent::new_square(Square::new(100.0)))
         .build();
     // cube 1
     world
         .create_entity()
-        .with(TransformComponent::new(Matrix4f::identity()))
+        .with(TransformComponent::new(Transform3f::identity()))
         .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
             1.0,
         )))
@@ -318,7 +331,7 @@ fn main() -> Result<(), Error> {
     world
         .create_entity()
         .with(TransformComponent::new(
-            Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_homogeneous(),
+            Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
         ))
         .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
             1.0,
@@ -328,7 +341,7 @@ fn main() -> Result<(), Error> {
     world
         .create_entity()
         .with(TransformComponent::new(
-            Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_homogeneous(),
+            Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
         ))
         .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
             1.0,
