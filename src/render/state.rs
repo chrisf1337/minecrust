@@ -1,13 +1,14 @@
 use crate::camera::Camera;
+use crate::render::shader::Program;
+use crate::types::*;
 use gl;
 use gl::types::*;
 use glutin;
 use num_traits::Zero;
-use crate::render::shader::Program;
+use specs::Entity;
 use std;
 use std::collections::HashSet;
 use std::time::Duration;
-use crate::types::*;
 
 #[derive(Debug)]
 pub struct AttributeFormat {
@@ -32,7 +33,7 @@ impl ArrayBuffer {
         }
     }
 
-    pub fn gl_init(&mut self) {
+    fn gl_init(&mut self) {
         unsafe {
             gl::CreateBuffers(1, &mut self.id as *mut u32);
         }
@@ -87,7 +88,7 @@ pub struct VertexArrayObject {
     id: u32,
     attributes: Vec<AttributeFormat>,
     used_locations: HashSet<u32>,
-    pub buffer: ArrayBuffer,
+    buffer: ArrayBuffer,
     stride: u32,
     total_buffer_len: u32,
 }
@@ -104,6 +105,7 @@ impl VertexArrayObject {
         unsafe {
             gl::CreateVertexArrays(1, &mut self.id as *mut u32);
         }
+        self.buffer.gl_init();
     }
 
     pub fn gl_setup_attributes(&mut self) {
@@ -125,17 +127,16 @@ impl VertexArrayObject {
         }
     }
 
-    pub fn gl_set_binding(&mut self) {
-        unsafe {
-            gl::VertexArrayVertexBuffer(self.id, 0, self.buffer.id, 0, self.stride as i32);
-        }
-    }
-
     pub fn gl_draw(&self) {
         unsafe {
+            gl::VertexArrayVertexBuffer(self.id, 0, self.buffer.id, 0, self.stride as i32);
             gl::BindVertexArray(self.id);
             gl::DrawArrays(gl::TRIANGLES, 0, self.buffer.size() as i32);
         }
+    }
+
+    pub fn buffer_mut(&mut self) -> &mut ArrayBuffer {
+        &mut self.buffer
     }
 }
 
@@ -153,32 +154,5 @@ pub struct RenderState {
     pub selection_texture: u32,
     pub crosshair_texture: u32,
     pub projection: Matrix4f,
-}
-
-impl RenderState {
-    pub fn new(
-        camera: Camera,
-        shader_program: Program,
-        crosshair_shader_program: Program,
-        cobblestone_texture: u32,
-        selection_texture: u32,
-        crosshair_texture: u32,
-        projection: Matrix4f,
-    ) -> Self {
-        RenderState {
-            vao: VertexArrayObject::default(),
-            selection_vao: VertexArrayObject::default(),
-            crosshair_vao: VertexArrayObject::default(),
-            frame_time_delta: Duration::default(),
-            pressed_keys: HashSet::default(),
-            mouse_delta: (0.0, 0.0),
-            camera,
-            shader_program,
-            crosshair_shader_program,
-            cobblestone_texture,
-            selection_texture,
-            crosshair_texture,
-            projection,
-        }
-    }
+    pub selected_cube: Option<Entity>,
 }

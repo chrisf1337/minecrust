@@ -116,7 +116,7 @@ impl<'a> System<'a> for RenderSystem {
         WriteExpect<'a, RenderState>,
     );
 
-    fn run(&mut self, (transform, geometry, mut render_state): Self::SystemData) {
+    fn run(&mut self, (transform_storage, geometry, mut render_state): Self::SystemData) {
         let render_state = render_state.deref_mut();
         let RenderState {
             ref mut vao,
@@ -132,6 +132,7 @@ impl<'a> System<'a> for RenderSystem {
             ref selection_texture,
             ref crosshair_texture,
             ref projection,
+            ref selected_cube,
         } = render_state;
         let d_yaw = mouse_delta.0 as f32 / 500.0;
         let d_pitch = mouse_delta.1 as f32 / 500.0;
@@ -157,12 +158,12 @@ impl<'a> System<'a> for RenderSystem {
         }
 
         let mut vtx_buf = vec![];
-        for (transform, geometry) in (&transform, &geometry).join() {
+        for (transform, geometry) in (&transform_storage, &geometry).join() {
             vtx_buf.extend(geometry.vtx_data(&transform.transform));
         }
 
-        vao.buffer.set_buf(vtx_buf);
-        vao.buffer.gl_bind(GlBufferUsage::DynamicDraw);
+        vao.buffer_mut().set_buf(vtx_buf);
+        vao.buffer_mut().gl_bind(GlBufferUsage::DynamicDraw);
 
         unsafe {
             gl::DepthFunc(gl::LESS);
@@ -178,12 +179,27 @@ impl<'a> System<'a> for RenderSystem {
         }
         vao.gl_draw();
 
-        unsafe {
-            gl::DepthFunc(gl::LEQUAL);
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, *selection_texture);
+        match selected_cube {
+            Some(cube) => {
+                let transform = transform_storage.get(*cube).unwrap();
+                if let Some(PrimitiveGeometryComponent::UnitCube(cube_geom)) = geometry.get(*cube) {
+                    let vtx_data = cube_geom.vtx_data(&transform.transform);
+                    selection_vao.buffer_mut().set_buf(vtx_data);
+                    selection_vao
+                        .buffer_mut()
+                        .gl_bind(GlBufferUsage::DynamicDraw);
+                    unsafe {
+                        gl::DepthFunc(gl::LEQUAL);
+                        gl::ActiveTexture(gl::TEXTURE0);
+                        gl::BindTexture(gl::TEXTURE_2D, *selection_texture);
+                    }
+                    selection_vao.gl_draw();
+                } else {
+                    unreachable!("selected cube wasn't a unit cube");
+                }
+            }
+            None => (),
         }
-        selection_vao.gl_draw();
 
         crosshair_shader_program.set_used();
         unsafe {

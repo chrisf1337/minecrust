@@ -10,20 +10,26 @@ use failure::{err_msg, Error};
 use failure_derive::Fail;
 use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
-use minecrust::camera::Camera;
-use minecrust::ecs::{
-    BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
-    TransformComponent,
+use minecrust::{
+    camera::Camera,
+    debug,
+    ecs::{
+        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
+        TransformComponent,
+    },
+    event_handlers::on_device_event,
+    geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube},
+    render::shader::{Program, Shader},
+    render::state::{AttributeFormat, RenderState, VertexArrayObject},
+    types::*,
 };
-use minecrust::event_handlers::on_device_event;
-use minecrust::geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube};
-use minecrust::render::shader::{Program, Shader};
-use minecrust::render::state::{AttributeFormat, RenderState, VertexArrayObject};
-use minecrust::{debug, types::*};
 use specs::prelude::*;
-use std::f32::consts::FRAC_PI_2;
-use std::ops::DerefMut;
-use std::time::SystemTime;
+use std::{
+    collections::HashSet,
+    f32::consts::FRAC_PI_2,
+    ops::DerefMut,
+    time::{Duration, SystemTime},
+};
 
 #[derive(Fail, Debug)]
 enum MainError {
@@ -146,10 +152,6 @@ fn main() -> Result<(), Error> {
     });
     selection_vao.gl_init();
     selection_vao.gl_setup_attributes();
-    selection_vao.buffer.set_buf(cube1_vtxs);
-    selection_vao.buffer.gl_init();
-    selection_vao.buffer.gl_bind(GlBufferUsage::DynamicDraw);
-    selection_vao.gl_set_binding();
 
     let mut crosshair_vao = VertexArrayObject::default();
     crosshair_vao.add_attribute(AttributeFormat {
@@ -165,12 +167,10 @@ fn main() -> Result<(), Error> {
     crosshair_vao.gl_init();
     crosshair_vao.gl_setup_attributes();
     {
-        let crosshair_buffer = &mut crosshair_vao.buffer;
+        let crosshair_buffer = crosshair_vao.buffer_mut();
         crosshair_buffer.set_buf(crosshair_rect.vtx_data(&Transform3f::identity()));
-        crosshair_buffer.gl_init();
         crosshair_buffer.gl_bind(GlBufferUsage::StaticDraw);
     }
-    crosshair_vao.gl_set_binding();
 
     let mut textures: [GLuint; 3] = [0; 3];
     unsafe {
@@ -241,7 +241,7 @@ fn main() -> Result<(), Error> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let camera = Camera::new_with_target(Point3f::new(3.0, 0.0, -3.0), Point3f::origin());
+    let camera = Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -270,12 +270,16 @@ fn main() -> Result<(), Error> {
         n_components: 2,
         normalized: false,
     });
-    vao.buffer.gl_init();
     vao.gl_init();
     vao.gl_setup_attributes();
-    vao.gl_set_binding();
 
-    let mut render_state = RenderState::new(
+    let mut render_state = RenderState {
+        vao: VertexArrayObject::default(),
+        selection_vao: VertexArrayObject::default(),
+        crosshair_vao: VertexArrayObject::default(),
+        frame_time_delta: Duration::default(),
+        pressed_keys: HashSet::default(),
+        mouse_delta: (0.0, 0.0),
         camera,
         shader_program,
         crosshair_shader_program,
@@ -283,7 +287,8 @@ fn main() -> Result<(), Error> {
         selection_texture,
         crosshair_texture,
         projection,
-    );
+        selected_cube: None,
+    };
     render_state.vao = vao;
     render_state.selection_vao = selection_vao;
     render_state.crosshair_vao = crosshair_vao;
@@ -338,7 +343,7 @@ fn main() -> Result<(), Error> {
         )))
         .build();
     // cube 3
-    world
+    let cube3 = world
         .create_entity()
         .with(TransformComponent::new(
             Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
@@ -347,6 +352,11 @@ fn main() -> Result<(), Error> {
             1.0,
         )))
         .build();
+
+    {
+        let mut render_state = world.write_resource::<RenderState>();
+        render_state.selected_cube = Some(cube3);
+    }
 
     while running {
         let current_frame_time = SystemTime::now();
