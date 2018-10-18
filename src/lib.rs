@@ -10,7 +10,7 @@ pub mod debug;
 pub mod ecs;
 pub mod event_handlers;
 pub mod geometry;
-pub mod render;
+pub mod gl;
 pub mod types;
 pub mod utils;
 

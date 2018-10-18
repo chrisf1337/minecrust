@@ -1,14 +1,10 @@
-use crate::camera::Camera;
-use crate::render::shader::Program;
+pub mod shader;
+
 use crate::types::*;
 use gl;
 use gl::types::*;
-use glutin;
-use num_traits::Zero;
-use specs::Entity;
 use std;
 use std::collections::HashSet;
-use std::time::Duration;
 
 #[derive(Debug)]
 pub struct AttributeFormat {
@@ -138,21 +134,4 @@ impl VertexArrayObject {
     pub fn buffer_mut(&mut self) -> &mut ArrayBuffer {
         &mut self.buffer
     }
-}
-
-pub struct RenderState {
-    pub vao: VertexArrayObject,
-    pub selection_vao: VertexArrayObject,
-    pub crosshair_vao: VertexArrayObject,
-    pub frame_time_delta: Duration,
-    pub pressed_keys: HashSet<glutin::VirtualKeyCode>,
-    pub mouse_delta: (f64, f64),
-    pub camera: Camera,
-    pub shader_program: Program,
-    pub crosshair_shader_program: Program,
-    pub cobblestone_texture: u32,
-    pub selection_texture: u32,
-    pub crosshair_texture: u32,
-    pub projection: Matrix4f,
-    pub selected_cube: Option<Entity>,
 }

@@ -1,12 +1,18 @@
+use crate::camera::Camera;
 use crate::geometry::{
     boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
 };
-use crate::render::state::RenderState;
+use crate::gl::{shader::Program, ArrayBuffer, VertexArrayObject};
 use crate::types::*;
+use glutin;
 use glutin::VirtualKeyCode;
+use num_traits::Zero;
 use specs::prelude::*;
+use specs::Entity;
 use specs_derive::Component;
+use std::collections::HashSet;
 use std::ops::DerefMut;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct TransformComponent {
@@ -101,6 +107,23 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
             println!("{:?}", transform);
         }
     }
+}
+
+pub struct RenderState {
+    pub vao: VertexArrayObject,
+    pub selection_vao: VertexArrayObject,
+    pub crosshair_vao: VertexArrayObject,
+    pub frame_time_delta: Duration,
+    pub pressed_keys: HashSet<glutin::VirtualKeyCode>,
+    pub mouse_delta: (f64, f64),
+    pub camera: Camera,
+    pub shader_program: Program,
+    pub crosshair_shader_program: Program,
+    pub cobblestone_texture: u32,
+    pub selection_texture: u32,
+    pub crosshair_texture: u32,
+    pub projection: Matrix4f,
+    pub selected_cube: Option<Entity>,
 }
 
 #[derive(Component, Default)]

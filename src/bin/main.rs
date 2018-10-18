@@ -14,13 +14,13 @@ use minecrust::{
     camera::Camera,
     debug,
     ecs::{
-        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
-        TransformComponent,
+        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderState,
+        RenderSystem, TransformComponent,
     },
     event_handlers::on_device_event,
     geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube},
-    render::shader::{Program, Shader},
-    render::state::{AttributeFormat, RenderState, VertexArrayObject},
+    gl::shader::{Program, Shader},
+    gl::{AttributeFormat, VertexArrayObject},
     types::*,
 };
 use specs::prelude::*;
