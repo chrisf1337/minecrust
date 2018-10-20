@@ -1,12 +1,12 @@
 use crate::camera::Camera;
 use crate::geometry::{
     boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
+    PrimitiveGeometry,
 };
-use crate::gl::{shader::Program, ArrayBuffer, VertexArrayObject};
+use crate::gl::{shader::Program, VertexArrayObject};
 use crate::types::*;
 use glutin;
 use glutin::VirtualKeyCode;
-use num_traits::Zero;
 use specs::prelude::*;
 use specs::Entity;
 use specs_derive::Component;
@@ -49,11 +49,11 @@ impl PrimitiveGeometryComponent {
         PrimitiveGeometryComponent::UnitCube(unit_cube)
     }
 
-    pub fn vtx_data(&self, transform: &Transform3f) -> Vec<f32> {
+    pub fn vtx_data(&mut self, transform: &Transform3f) -> Vec<f32> {
         match self {
-            PrimitiveGeometryComponent::Rectangle(rect) => rect.vtx_data(transform),
-            PrimitiveGeometryComponent::Square(square) => square.vtx_data(transform),
-            PrimitiveGeometryComponent::UnitCube(cube) => cube.vtx_data(transform),
+            PrimitiveGeometryComponent::Rectangle(ref mut rect) => rect.vtx_data(transform),
+            PrimitiveGeometryComponent::Square(ref mut square) => square.vtx_data(transform),
+            PrimitiveGeometryComponent::UnitCube(ref mut cube) => cube.vtx_data(transform),
         }
     }
 }
@@ -135,11 +135,11 @@ pub struct RenderSystem;
 impl<'a> System<'a> for RenderSystem {
     type SystemData = (
         ReadStorage<'a, TransformComponent>,
-        ReadStorage<'a, PrimitiveGeometryComponent>,
+        WriteStorage<'a, PrimitiveGeometryComponent>,
         WriteExpect<'a, RenderState>,
     );
 
-    fn run(&mut self, (transform_storage, geometry, mut render_state): Self::SystemData) {
+    fn run(&mut self, (transform_storage, mut geometry, mut render_state): Self::SystemData) {
         let render_state = render_state.deref_mut();
         let RenderState {
             ref mut vao,
@@ -181,7 +181,7 @@ impl<'a> System<'a> for RenderSystem {
         }
 
         let mut vtx_buf = vec![];
-        for (transform, geometry) in (&transform_storage, &geometry).join() {
+        for (transform, geometry) in (&transform_storage, &mut geometry).join() {
             vtx_buf.extend(geometry.vtx_data(&transform.transform));
         }
 
@@ -205,7 +205,9 @@ impl<'a> System<'a> for RenderSystem {
         match selected_cube {
             Some(cube) => {
                 let transform = transform_storage.get(*cube).unwrap();
-                if let Some(PrimitiveGeometryComponent::UnitCube(cube_geom)) = geometry.get(*cube) {
+                if let Some(PrimitiveGeometryComponent::UnitCube(ref mut cube_geom)) =
+                    geometry.get_mut(*cube)
+                {
                     let vtx_data = cube_geom.vtx_data(&transform.transform);
                     selection_vao.buffer_mut().set_buf(vtx_data);
                     selection_vao

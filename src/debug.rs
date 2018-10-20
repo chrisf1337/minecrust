@@ -11,7 +11,7 @@ extern "system" fn debug_callback(
     message: *const GLchar,
     _user_param: *mut GLvoid,
 ) {
-    if id == 131169 || id == 131185 || id == 131218 || id == 131204 {
+    if id == 131_169 || id == 131_185 || id == 131_218 || id == 131_204 {
         return;
     }
     eprintln!("--------------------");

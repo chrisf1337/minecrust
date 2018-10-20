@@ -9,6 +9,23 @@ pub type Quaternionf = Quaternion<f32>;
 pub type UnitQuaternionf = UnitQuaternion<f32>;
 pub type Transform3f = Transform3<f32>;
 
+pub struct Vecf(pub Vec<f32>);
+
+impl Vecf {
+    pub fn from_slice(slice: &[f32]) -> Vecf {
+        Vecf(slice.to_vec())
+    }
+}
+
+impl PartialEq for Vecf {
+    fn eq(&self, other: &Vecf) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        self.0.eq(&other.0)
+    }
+}
+
 pub enum GlBufferUsage {
     StreamDraw,
     StreamRead,

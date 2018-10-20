@@ -18,7 +18,7 @@ use minecrust::{
         RenderSystem, TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube},
+    geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube, PrimitiveGeometry},
     gl::shader::{Program, Shader},
     gl::{AttributeFormat, VertexArrayObject},
     types::*,
@@ -126,18 +126,11 @@ fn main() -> Result<(), Error> {
     let crosshair_img_data: Vec<u8> = crosshair_img.clone().into_vec();
     let crosshair_rect_height = 0.1;
     let crosshair_rect_width = crosshair_rect_height / aspect_ratio;
-    let crosshair_rect = Rectangle::new_with_transform(
-        crosshair_rect_width,
-        crosshair_rect_height,
-        &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_superset(),
-    );
+    let mut crosshair_rect = Rectangle::new(crosshair_rect_width, crosshair_rect_height);
 
     let selection_path = "assets/selection.png";
     let selection_img = image::open(selection_path)?.flipv().to_rgba();
     let selection_img_data: Vec<u8> = selection_img.clone().into_vec();
-
-    let cube1 = UnitCube::new(1.0);
-    let cube1_vtxs = cube1.vtx_data(&Transform3f::identity());
 
     let mut selection_vao = VertexArrayObject::default();
     selection_vao.add_attribute(AttributeFormat {
@@ -168,7 +161,11 @@ fn main() -> Result<(), Error> {
     crosshair_vao.gl_setup_attributes();
     {
         let crosshair_buffer = crosshair_vao.buffer_mut();
-        crosshair_buffer.set_buf(crosshair_rect.vtx_data(&Transform3f::identity()));
+        crosshair_buffer.set_buf(
+            crosshair_rect.vtx_data(
+                &Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2).to_superset(),
+            ),
+        );
         crosshair_buffer.gl_bind(GlBufferUsage::StaticDraw);
     }
 
@@ -333,7 +330,7 @@ fn main() -> Result<(), Error> {
         )))
         .build();
     // cube 2
-    world
+    let cube3 = world
         .create_entity()
         .with(TransformComponent::new(
             Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
@@ -343,7 +340,7 @@ fn main() -> Result<(), Error> {
         )))
         .build();
     // cube 3
-    let cube3 = world
+    world
         .create_entity()
         .with(TransformComponent::new(
             Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),

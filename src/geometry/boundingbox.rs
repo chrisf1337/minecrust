@@ -15,13 +15,7 @@ impl BoundingBox {
         }
     }
 
-    pub fn new_for_unit_cube(cube: &UnitCube, transform: &Transform3f) -> BoundingBox {
-        let min = transform * Point3f::new(-cube.side_len, -cube.side_len, -cube.side_len);
-        let max = transform * Point3f::new(cube.side_len, cube.side_len, cube.side_len);
-        BoundingBox::new(min, max)
-    }
-
-    pub fn merge(a: BoundingBox, b: BoundingBox) -> BoundingBox {
+    pub fn merge(a: &BoundingBox, b: &BoundingBox) -> BoundingBox {
         BoundingBox {
             min: pt3f_min(&a.min, &b.min),
             max: pt3f_max(&a.max, &b.max),

@@ -1,6 +1,5 @@
 use crate::na::Unit;
 use crate::types::*;
-use crate::utils;
 use std::f32;
 use std::f32::consts::{FRAC_PI_2, PI};
 
