@@ -160,9 +160,7 @@ impl<'a> System<'a> for RenderSystem {
         let d_yaw = mouse_delta.0 as f32 / 500.0;
         let d_pitch = mouse_delta.1 as f32 / 500.0;
         let delta_time = frame_time_delta.as_nanos() as f32 / 1_000_000_000.0f32;
-        // Negate deltas because positive x is decreasing yaw, and positive y (origin for mouse
-        // events is at upper left) is decreasing pitch.
-        camera.rotate((-d_yaw, -d_pitch));
+        camera.rotate((-d_yaw, d_pitch));
         let camera_speed = 3.0 * delta_time;
         for keycode in pressed_keys {
             match keycode {
