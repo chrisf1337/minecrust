@@ -90,19 +90,19 @@ mod tests {
         let mut rect = Rectangle::new(1.0, 2.0);
         let t = Translation3::from_vector(Vector3f::new(0.0, 2.0, 0.0));
         let vertices = rect.vertices(&t.to_superset());
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[0],
             &Point3f::new(-0.5, 2.0, -1.0)
         ));
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[1],
             &Point3f::new(-0.5, 2.0, 1.0)
         ));
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[2],
             &Point3f::new(0.5, 2.0, 1.0)
         ));
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[3],
             &Point3f::new(0.5, 2.0, -1.0)
         ));
@@ -116,19 +116,19 @@ mod tests {
             Rotation3::from_axis_angle(&Vector3f::x_axis(), ::std::f32::consts::FRAC_PI_2),
         );
         let vertices = rect.vertices(&t.to_superset());
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[0],
             &Point3f::new(-0.5, 1.0, 0.5)
         ));
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[1],
             &Point3f::new(-0.5, -1.0, 0.5)
         ));
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[2],
             &Point3f::new(0.5, -1.0, 0.5)
         ));
-        assert!(utils::pt3f_almost_eq(
+        assert!(utils::pt3f::almost_eq(
             &vertices[3],
             &Point3f::new(0.5, 1.0, 0.5)
         ));

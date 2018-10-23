@@ -64,7 +64,7 @@ impl Ray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::pt3f_almost_eq;
+    use crate::utils::pt3f;
 
     #[test]
     fn test_intersect1() {
@@ -72,7 +72,7 @@ mod tests {
         let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect(&bbox);
         assert!(intersection.is_some());
-        assert!(pt3f_almost_eq(
+        assert!(pt3f::almost_eq(
             &intersection.unwrap(),
             &Point3f::new(1.0, 0.0, 0.0)
         ));
@@ -85,7 +85,7 @@ mod tests {
         let intersection = r.intersect(&bbox);
         assert!(intersection.is_some());
         println!("{:?}", intersection);
-        assert!(pt3f_almost_eq(
+        assert!(pt3f::almost_eq(
             &intersection.unwrap(),
             &Point3f::new(0.0, -0.5, 1.0)
         ));
