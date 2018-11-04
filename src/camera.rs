@@ -1,14 +1,14 @@
 use crate::na::Unit;
 use crate::types::*;
+use crate::utils::vec3f::yaw_pitch_diff;
 use std::f32;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub pos: Point3f,
-    direction: Unit<Vector3f>,
-    pitch_q: UnitQuaternionf,
-    yaw_q: UnitQuaternionf,
+    pub pitch_q: UnitQuaternionf,
+    pub yaw_q: UnitQuaternionf,
 }
 
 impl Default for Camera {
@@ -18,16 +18,17 @@ impl Default for Camera {
 }
 
 impl Camera {
-    /// Yaw is measured as rotation from (0, 0, 1).
+    /// Yaw is measured as rotation from (0, 0, 1). Positive yaw is in the direction of the x-axis.
     pub fn new(pos: Point3f, direction: Unit<Vector3f>) -> Camera {
         let yaw = f32::atan2(direction.x, direction.z);
-        let pitch = f32::asin(direction.y);
+        // From the right hand rule, positive pitch will depress positive z
+        let pitch = f32::asin(-direction.y);
+        println!("yaw {}  pitch {}", yaw, pitch);
         // (pitch, yaw, roll)
         let pitch_q = UnitQuaternionf::from_euler_angles(pitch, 0.0, 0.0);
         let yaw_q = UnitQuaternionf::from_euler_angles(0.0, yaw, 0.0);
         let c = Camera {
             pos,
-            direction,
             pitch_q,
             yaw_q,
         };
@@ -66,5 +67,14 @@ impl Camera {
 
         self.yaw_q = UnitQuaternionf::from_euler_angles(0.0, d_yaw, 0.0) * self.yaw_q;
         self.pitch_q = UnitQuaternionf::from_euler_angles(pitch, 0.0, 0.0);
+    }
+
+    pub fn rotate_to(&mut self, (yaw, pitch): (f32, f32)) {
+        self.pitch_q = UnitQuaternionf::from_euler_angles(pitch, 0.0, 0.0);
+        self.yaw_q = UnitQuaternionf::from_euler_angles(0.0, yaw, 0.0);
+    }
+
+    pub fn rotate_to_dir(&mut self, direction: &Vector3f) {
+        self.rotate_to(yaw_pitch_diff(&Vector3f::z(), direction));
     }
 }

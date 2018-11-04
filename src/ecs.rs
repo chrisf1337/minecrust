@@ -5,6 +5,7 @@ use crate::geometry::{
 };
 use crate::gl::{shader::Program, VertexArrayObject};
 use crate::types::*;
+use crate::utils::{f32, pt3f, quat4f, NSEC_PER_SEC};
 use glutin;
 use glutin::VirtualKeyCode;
 use specs::prelude::*;
@@ -113,6 +114,7 @@ pub struct RenderState {
     pub vao: VertexArrayObject,
     pub selection_vao: VertexArrayObject,
     pub crosshair_vao: VertexArrayObject,
+    pub elapsed_time: Duration,
     pub frame_time_delta: Duration,
     pub pressed_keys: HashSet<glutin::VirtualKeyCode>,
     pub mouse_delta: (f64, f64),
@@ -124,6 +126,7 @@ pub struct RenderState {
     pub crosshair_texture: u32,
     pub projection: Matrix4f,
     pub selected_cube: Option<Entity>,
+    pub camera_animation: Option<CameraAnimation>,
 }
 
 #[derive(Component, Default)]
@@ -131,6 +134,54 @@ pub struct RenderState {
 pub struct SelectedComponent;
 
 pub struct RenderSystem;
+
+pub struct CameraAnimation {
+    pub start_pos: Point3f,
+    pub start_yaw_q: UnitQuaternionf,
+    pub start_pitch_q: UnitQuaternionf,
+    pub end_pos: Point3f,
+    pub end_yaw_q: UnitQuaternionf,
+    pub end_pitch_q: UnitQuaternionf,
+    pub start_time: f32,
+    pub duration: f32,
+}
+
+impl CameraAnimation {
+    pub fn new(
+        camera: &Camera,
+        end_position: Point3f,
+        end_direction: &Vector3f,
+        start_time: f32,
+        duration: f32,
+    ) -> CameraAnimation {
+        let end_yaw = f32::atan2(end_direction.x, end_direction.z);
+        let end_pitch = f32::asin(end_direction.y);
+        CameraAnimation {
+            start_pos: camera.pos,
+            start_yaw_q: camera.yaw_q,
+            start_pitch_q: camera.pitch_q,
+            end_pos: end_position,
+            end_yaw_q: UnitQuaternionf::from_euler_angles(0.0, end_yaw, 0.0),
+            end_pitch_q: UnitQuaternionf::from_euler_angles(end_pitch, 0.0, 0.0),
+            start_time,
+            duration,
+        }
+    }
+
+    /// Returns the point, yaw quaternion, and pitch quaternion of the animation at time `t`.
+    pub fn at(&self, time: f32) -> (Point3f, UnitQuaternionf, UnitQuaternionf) {
+        let t = (time - self.start_time) / self.duration;
+        (
+            pt3f::clerp(&self.start_pos, &self.end_pos, t),
+            quat4f::clerp(&self.start_yaw_q, &self.end_yaw_q, t),
+            quat4f::clerp(&self.start_pitch_q, &self.end_pitch_q, t),
+        )
+    }
+
+    pub fn end_time(&self) -> f32 {
+        self.start_time + self.duration
+    }
+}
 
 impl<'a> System<'a> for RenderSystem {
     type SystemData = (
@@ -145,6 +196,7 @@ impl<'a> System<'a> for RenderSystem {
             ref mut vao,
             ref mut selection_vao,
             ref mut crosshair_vao,
+            ref elapsed_time,
             ref frame_time_delta,
             ref pressed_keys,
             ref mouse_delta,
@@ -156,12 +208,36 @@ impl<'a> System<'a> for RenderSystem {
             ref crosshair_texture,
             ref projection,
             ref selected_cube,
+            ref mut camera_animation,
         } = render_state;
         let d_yaw = mouse_delta.0 as f32 / 500.0;
         let d_pitch = mouse_delta.1 as f32 / 500.0;
-        let delta_time = frame_time_delta.as_nanos() as f32 / 1_000_000_000.0f32;
-        camera.rotate((-d_yaw, d_pitch));
-        let camera_speed = 3.0 * delta_time;
+        let frame_time_delta_f = frame_time_delta.as_nanos() as f32 / 1_000_000_000.0f32;
+        let elapsed_time_f = elapsed_time.as_nanos() as f32 / NSEC_PER_SEC as f32;
+        let mut camera_animation_finished = false;
+        if let Some(camera_animation) = camera_animation {
+            // Check if animation has expired
+            if elapsed_time_f >= camera_animation.end_time() {
+                println!("{:#?} {:#?}", camera.pitch_q, camera.yaw_q);
+                camera.pos = camera_animation.end_pos;
+                camera.pitch_q = camera_animation.end_pitch_q;
+                camera.yaw_q = camera_animation.end_yaw_q;
+                camera_animation_finished = true;
+                println!("{:#?} {:#?}", camera.pitch_q, camera.yaw_q);
+            } else {
+                let (pos, yaw_q, pitch_q) = camera_animation.at(elapsed_time_f);
+                camera.pos = pos;
+                camera.pitch_q = pitch_q;
+                camera.yaw_q = yaw_q;
+                camera_animation_finished = false;
+            }
+        } else {
+            camera.rotate((-d_yaw, d_pitch));
+        }
+        if camera_animation_finished {
+            *camera_animation = None;
+        }
+        let camera_speed = 3.0 * frame_time_delta_f;
         for keycode in pressed_keys {
             match keycode {
                 VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),

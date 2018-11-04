@@ -14,8 +14,8 @@ use minecrust::{
     camera::Camera,
     debug,
     ecs::{
-        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderState,
-        RenderSystem, TransformComponent,
+        BoundingBoxComponent, BoundingBoxComponentSystem, CameraAnimation,
+        PrimitiveGeometryComponent, RenderState, RenderSystem, TransformComponent,
     },
     event_handlers::on_device_event,
     geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube, PrimitiveGeometry},
@@ -238,7 +238,8 @@ fn main() -> Result<(), Error> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let camera = Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin());
+    let camera = Camera::new_with_target(Point3f::new(3.0, 3.0, 3.0), Point3f::origin());
+    println!("direction {:?}", camera.direction());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -270,10 +271,20 @@ fn main() -> Result<(), Error> {
     vao.gl_init();
     vao.gl_setup_attributes();
 
+    let camera_animation = CameraAnimation::new(
+        &camera,
+        Point3f::new(0.0, 0.0, 3.0),
+        &-Vector3f::z(),
+        1.0,
+        1.0,
+    );
+
+    let start_time = SystemTime::now();
     let mut render_state = RenderState {
         vao: VertexArrayObject::default(),
         selection_vao: VertexArrayObject::default(),
         crosshair_vao: VertexArrayObject::default(),
+        elapsed_time: Duration::default(),
         frame_time_delta: Duration::default(),
         pressed_keys: HashSet::default(),
         mouse_delta: (0.0, 0.0),
@@ -285,6 +296,7 @@ fn main() -> Result<(), Error> {
         crosshair_texture,
         projection,
         selected_cube: None,
+        camera_animation: Some(camera_animation),
     };
     render_state.vao = vao;
     render_state.selection_vao = selection_vao;
@@ -385,6 +397,7 @@ fn main() -> Result<(), Error> {
             });
 
             render_state.mouse_delta = mouse_delta;
+            render_state.elapsed_time = start_time.elapsed()?;
             render_state.frame_time_delta = frame_time_delta;
         }
         dispatcher.dispatch(&world.res);
