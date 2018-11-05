@@ -238,8 +238,7 @@ fn main() -> Result<(), Error> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let camera = Camera::new_with_target(Point3f::new(3.0, 3.0, 3.0), Point3f::origin());
-    println!("direction {:?}", camera.direction());
+    let camera = Camera::new_with_target(Point3f::new(-3.0, -3.0, -3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -273,11 +272,12 @@ fn main() -> Result<(), Error> {
 
     let camera_animation = CameraAnimation::new(
         &camera,
-        Point3f::new(0.0, 0.0, 3.0),
-        &-Vector3f::z(),
+        Point3f::new(0.0, -1.0, 3.0),
+        &Vector3f::new(0.0, 1.0, -3.0),
         1.0,
         1.0,
     );
+    println!("{:#?}", camera_animation);
 
     let start_time = SystemTime::now();
     let mut render_state = RenderState {
@@ -297,6 +297,7 @@ fn main() -> Result<(), Error> {
         projection,
         selected_cube: None,
         camera_animation: Some(camera_animation),
+        // camera_animation: None,
     };
     render_state.vao = vao;
     render_state.selection_vao = selection_vao;
@@ -329,7 +330,7 @@ fn main() -> Result<(), Error> {
     world
         .create_entity()
         .with(TransformComponent::new(
-            Translation3::from_vector(Vector3f::new(0.0, -1.0, 0.0)).to_superset(),
+            Translation3::from_vector(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
         ))
         .with(PrimitiveGeometryComponent::new_square(Square::new(100.0)))
         .build();

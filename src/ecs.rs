@@ -5,13 +5,14 @@ use crate::geometry::{
 };
 use crate::gl::{shader::Program, VertexArrayObject};
 use crate::types::*;
-use crate::utils::{f32, pt3f, quat4f, NSEC_PER_SEC};
+use crate::utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC};
 use glutin;
 use glutin::VirtualKeyCode;
 use specs::prelude::*;
 use specs::Entity;
 use specs_derive::Component;
 use std::collections::HashSet;
+use std::f32::consts::PI;
 use std::ops::DerefMut;
 use std::time::Duration;
 
@@ -135,6 +136,7 @@ pub struct SelectedComponent;
 
 pub struct RenderSystem;
 
+#[derive(Debug, Clone, Copy)]
 pub struct CameraAnimation {
     pub start_pos: Point3f,
     pub start_yaw_q: UnitQuaternionf,
@@ -154,15 +156,21 @@ impl CameraAnimation {
         start_time: f32,
         duration: f32,
     ) -> CameraAnimation {
-        let end_yaw = f32::atan2(end_direction.x, end_direction.z);
-        let end_pitch = f32::asin(end_direction.y);
+        let (mut yaw_diff, pitch_diff) = vec3f::yaw_pitch_diff(&camera.direction(), &end_direction);
+        if yaw_diff > PI {
+            yaw_diff -= 2.0 * PI;
+        } else if yaw_diff < -PI {
+            yaw_diff += 2.0 * PI;
+        }
+        let rot_yaw_q = UnitQuaternionf::from_euler_angles(0.0, yaw_diff, 0.0);
+        let rot_pitch_q = UnitQuaternionf::from_euler_angles(pitch_diff, 0.0, 0.0);
         CameraAnimation {
             start_pos: camera.pos,
             start_yaw_q: camera.yaw_q,
             start_pitch_q: camera.pitch_q,
             end_pos: end_position,
-            end_yaw_q: UnitQuaternionf::from_euler_angles(0.0, end_yaw, 0.0),
-            end_pitch_q: UnitQuaternionf::from_euler_angles(end_pitch, 0.0, 0.0),
+            end_yaw_q: rot_yaw_q * camera.yaw_q,
+            end_pitch_q: rot_pitch_q * camera.pitch_q,
             start_time,
             duration,
         }
@@ -218,12 +226,10 @@ impl<'a> System<'a> for RenderSystem {
         if let Some(camera_animation) = camera_animation {
             // Check if animation has expired
             if elapsed_time_f >= camera_animation.end_time() {
-                println!("{:#?} {:#?}", camera.pitch_q, camera.yaw_q);
                 camera.pos = camera_animation.end_pos;
                 camera.pitch_q = camera_animation.end_pitch_q;
                 camera.yaw_q = camera_animation.end_yaw_q;
                 camera_animation_finished = true;
-                println!("{:#?} {:#?}", camera.pitch_q, camera.yaw_q);
             } else {
                 let (pos, yaw_q, pitch_q) = camera_animation.at(elapsed_time_f);
                 camera.pos = pos;

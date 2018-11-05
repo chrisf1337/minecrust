@@ -23,7 +23,6 @@ impl Camera {
         let yaw = f32::atan2(direction.x, direction.z);
         // From the right hand rule, positive pitch will depress positive z
         let pitch = f32::asin(-direction.y);
-        println!("yaw {}  pitch {}", yaw, pitch);
         // (pitch, yaw, roll)
         let pitch_q = UnitQuaternionf::from_euler_angles(pitch, 0.0, 0.0);
         let yaw_q = UnitQuaternionf::from_euler_angles(0.0, yaw, 0.0);
