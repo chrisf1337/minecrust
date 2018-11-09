@@ -238,7 +238,7 @@ fn main() -> Result<(), Error> {
         gl::BindTexture(gl::TEXTURE_2D, 0);
     }
 
-    let camera = Camera::new_with_target(Point3f::new(-3.0, -3.0, -3.0), Point3f::origin());
+    let camera = Camera::new_with_target(Point3f::new(-3.0, 3.0, -3.0), Point3f::origin());
     let projection = Perspective3::new(
         screen_width as f32 / screen_height as f32,
         f32::to_radians(45.),
@@ -332,15 +332,13 @@ fn main() -> Result<(), Error> {
         .with(TransformComponent::new(
             Translation3::from_vector(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
         ))
-        .with(PrimitiveGeometryComponent::new_square(Square::new(100.0)))
+        .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
         .build();
     // cube 1
     world
         .create_entity()
         .with(TransformComponent::new(Transform3f::identity()))
-        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
-            1.0,
-        )))
+        .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
         .build();
     // cube 2
     let cube3 = world
@@ -348,9 +346,7 @@ fn main() -> Result<(), Error> {
         .with(TransformComponent::new(
             Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
         ))
-        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
-            1.0,
-        )))
+        .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
         .build();
     // cube 3
     world
@@ -358,9 +354,7 @@ fn main() -> Result<(), Error> {
         .with(TransformComponent::new(
             Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
         ))
-        .with(PrimitiveGeometryComponent::new_unit_cube(UnitCube::new(
-            1.0,
-        )))
+        .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
         .build();
 
     {

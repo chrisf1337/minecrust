@@ -39,23 +39,20 @@ pub enum PrimitiveGeometryComponent {
 }
 
 impl PrimitiveGeometryComponent {
-    pub fn new_rect(rect: Rectangle) -> PrimitiveGeometryComponent {
-        PrimitiveGeometryComponent::Rectangle(rect)
-    }
-
-    pub fn new_square(square: Square) -> PrimitiveGeometryComponent {
-        PrimitiveGeometryComponent::Square(square)
-    }
-
-    pub fn new_unit_cube(unit_cube: UnitCube) -> PrimitiveGeometryComponent {
-        PrimitiveGeometryComponent::UnitCube(unit_cube)
-    }
-
     pub fn vtx_data(&mut self, transform: &Transform3f) -> Vec<f32> {
         match self {
             PrimitiveGeometryComponent::Rectangle(ref mut rect) => rect.vtx_data(transform),
             PrimitiveGeometryComponent::Square(ref mut square) => square.vtx_data(transform),
             PrimitiveGeometryComponent::UnitCube(ref mut cube) => cube.vtx_data(transform),
+        }
+    }
+
+    pub fn geometry(&self) -> &PrimitiveGeometry {
+        use self::PrimitiveGeometryComponent::*;
+        match self {
+            Rectangle(ref rect) => rect,
+            Square(ref square) => square,
+            UnitCube(ref cube) => cube,
         }
     }
 }
@@ -66,6 +63,12 @@ pub struct BoundingBoxComponent {
 
 impl Component for BoundingBoxComponent {
     type Storage = FlaggedStorage<Self>;
+}
+
+impl BoundingBoxComponent {
+    pub fn new(bbox: BoundingBox) -> BoundingBoxComponent {
+        BoundingBoxComponent { bbox }
+    }
 }
 
 pub struct BoundingBoxComponentSystem {
@@ -94,19 +97,25 @@ impl BoundingBoxComponentSystem {
 impl<'a> System<'a> for BoundingBoxComponentSystem {
     type SystemData = (
         Entities<'a>,
+        ReadStorage<'a, PrimitiveGeometryComponent>,
         ReadStorage<'a, TransformComponent>,
         WriteStorage<'a, BoundingBoxComponent>,
     );
 
-    fn run(&mut self, (entities, transforms, mut bounding_boxes): Self::SystemData) {
+    fn run(&mut self, (entities, primitives, transforms, mut bounding_boxes): Self::SystemData) {
         self.inserted.clear();
         self.modified.clear();
 
         transforms.populate_inserted(&mut self.inserted_id, &mut self.inserted);
         transforms.populate_modified(&mut self.modified_id, &mut self.modified);
 
-        for (entity, transform, _) in (&entities, &transforms, &self.inserted).join() {
-            println!("{:?}", transform);
+        for (entity, primitive, transform, _) in
+            (&entities, &primitives, &transforms, &self.inserted).join()
+        {
+            let bbox = primitive.geometry().bounding_box(&transform.transform);
+            bounding_boxes
+                .insert(entity, BoundingBoxComponent::new(bbox))
+                .unwrap_or_else(|err| panic!("{:?}", err));
         }
     }
 }
