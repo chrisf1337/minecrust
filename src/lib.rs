@@ -13,5 +13,6 @@ pub mod geometry;
 pub mod gl;
 pub mod types;
 pub mod utils;
+pub mod vulkan;
 
 pub use crate::types::*;

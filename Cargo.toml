@@ -15,3 +15,8 @@ specs = "*"
 specs-derive = "*"
 num-traits = "*"
 alga = "*"
+ash = "*"
+winit = "*"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = "*"
