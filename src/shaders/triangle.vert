@@ -1,17 +1,21 @@
 #version 450 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 texCoord;
+#extension GL_ARB_separate_shader_objects : enable
 
-out VtxOut {
-    vec3 pos;
-    vec2 texCoord;
-} vtxOut;
+layout (location = 0) out vec3 fragColor;
 
-uniform mat4 view;
-uniform mat4 projection;
+vec2 positions[3] = vec2[](
+    vec2(0.0, -0.5),
+    vec2(0.5, 0.5),
+    vec2(-0.5, 0.5)
+);
+
+vec3 colors[3] = vec3[](
+    vec3(1.0, 0.0, 0.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 0.0, 1.0)
+);
 
 void main() {
-    gl_Position = projection * view * vec4(aPos, 1.0);
-    vtxOut.pos = aPos;
-    vtxOut.texCoord = texCoord;
+    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+    fragColor = colors[gl_VertexIndex];
 }

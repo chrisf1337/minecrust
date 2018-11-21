@@ -3,6 +3,7 @@ name = "minecrust"
 version = "0.1.0"
 authors = ["Christopher Fu <chrisf1337@gmail.com>"]
 edition = "2018"
+build = "build.rs"
 
 [dependencies]
 gl = "*"
@@ -17,6 +18,7 @@ num-traits = "*"
 alga = "*"
 ash = "*"
 winit = "*"
+byteorder = "*"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = "*"

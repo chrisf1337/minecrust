@@ -1,13 +1,9 @@
 #version 450 core
-out vec4 fragColor;
+#extension GL_ARB_separate_shader_objects : enable
 
-in VtxOut {
-    vec3 pos;
-    vec2 texCoord;
-} vtxOut;
-
-uniform sampler2D tex;
+layout(location = 0) in vec3 fragColor;
+layout(location = 0) out vec4 outColor;
 
 void main() {
-    fragColor = texture(tex, vtxOut.texCoord);
+    outColor = vec4(fragColor, 1.0);
 }

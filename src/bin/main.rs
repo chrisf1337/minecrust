@@ -81,7 +81,8 @@ impl From<std::time::SystemTimeError> for MainError {
     }
 }
 fn main() -> Result<(), Error> {
-    let vulkan_base = VulkanBase::new(1024, 768)?;
+    let mut vulkan_base = VulkanBase::new(1024, 768)?;
+    vulkan_base.start();
     Ok(())
     // let mut events_loop = glutin::EventsLoop::new();
     // let window = glutin::WindowBuilder::new()
