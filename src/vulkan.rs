@@ -732,17 +732,42 @@ impl VulkanBase {
         self.swapchain_image_views = swapchain_image_views;
         self.surface_format = surface_format;
         self.swapchain_extent = swapchain_extent;
+
+        self.render_pass = create_render_pass(&self.device, self.surface_format)?;
+        let (graphics_pipeline, graphics_pipeline_layout) =
+            create_graphics_pipeline(&self.device, self.swapchain_extent, self.render_pass)?;
+        self.graphics_pipeline = graphics_pipeline;
+        self.graphics_pipeline_layout = graphics_pipeline_layout;
+        self.swapchain_framebuffers = create_framebuffers(
+            &self.device,
+            &self.swapchain_image_views,
+            self.render_pass,
+            self.swapchain_extent,
+        )?;
+        self.command_buffers = create_command_buffers(
+            &self.device,
+            self.command_pool,
+            &self.swapchain_framebuffers,
+            self.render_pass,
+            self.swapchain_extent,
+            self.graphics_pipeline,
+        )?;
+
         Ok(())
     }
 
-    pub unsafe fn draw_frame(&mut self) -> VkResult<()> {
+    pub unsafe fn draw_frame(&mut self, resized: bool) -> VkResult<()> {
         self.device.wait_for_fences(
             &[self.in_flight_fences[self.current_frame]],
             true,
             std::u64::MAX,
         )?;
-        self.device
-            .reset_fences(&[self.in_flight_fences[self.current_frame]])?;
+
+        if resized {
+            self.recreate_swapchain()?;
+            println!("recreated swapchain");
+            return Ok(());
+        }
 
         match self.swapchain.acquire_next_image_khr(
             self.swapchain_handle,
@@ -758,31 +783,45 @@ impl VulkanBase {
                     .command_buffers(&[self.command_buffers[image_index as usize]])
                     .signal_semaphores(&signal_semaphores)
                     .build();
+
+                self.device
+                    .reset_fences(&[self.in_flight_fences[self.current_frame]])?;
                 self.device.queue_submit(
                     self.graphics_queue,
                     &[submit_info],
                     self.in_flight_fences[self.current_frame],
                 )?;
+
                 let swapchains = [self.swapchain_handle];
                 let present_info = vk::PresentInfoKHR::builder()
                     .wait_semaphores(&signal_semaphores)
                     .swapchains(&swapchains)
                     .image_indices(&[image_index])
                     .build();
-                self.swapchain
-                    .queue_present_khr(self.graphics_queue, &present_info)?;
+
+                match self
+                    .swapchain
+                    .queue_present_khr(self.graphics_queue, &present_info)
+                {
+                    Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                        self.recreate_swapchain()?
+                    }
+                    Ok(false) => (),
+                    Err(e) => return Err(e),
+                }
                 self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
                 Ok(())
             }
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => self.recreate_swapchain(),
-
             Err(e) => Err(e),
         }
     }
 
     pub fn start(&mut self) {
         let mut running = true;
+        let mut just_started = true;
         while running {
+            let mut resized = false;
             self.events_loop.poll_events(|event| match event {
                 Event::DeviceEvent { event, .. } => match event {
                     DeviceEvent::Key(KeyboardInput {
@@ -797,12 +836,23 @@ impl VulkanBase {
                 },
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => running = false,
+                    WindowEvent::Resized(LogicalSize { width, height }) => {
+                        // FIXME: handle minimization?
+                        // Right now we don't allow the window to be resized
+                        if just_started {
+                            // When the window is first created, a resized event is sent
+                            just_started = false;
+                        } else {
+                            println!("resized to ({}, {})", width, height);
+                            resized = true;
+                        }
+                    }
                     _ => (),
                 },
                 _ => (),
             });
             unsafe {
-                let _ = self.draw_frame();
+                let _ = self.draw_frame(resized);
             }
         }
     }
