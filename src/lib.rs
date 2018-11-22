@@ -1,6 +1,7 @@
 #![feature(custom_attribute, duration_as_u128)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 use nalgebra as na;
 
