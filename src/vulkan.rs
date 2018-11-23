@@ -10,6 +10,8 @@ use byteorder::LittleEndian;
 use crate::na::Vector2;
 use crate::types::*;
 use crate::utils::clamp;
+use failure::Error;
+use failure_derive::Fail;
 use std::{
     ffi::{CStr, CString},
     fs::File,
@@ -71,6 +73,45 @@ unsafe fn destroy_debug_utils_messenger_ext(
         let func: vk::PFN_vkDestroyDebugUtilsMessengerEXT = std::mem::transmute(func);
         func(instance, callback, alloc_callbacks);
     }
+}
+
+/// Returns (physical_device, graphics queue, transfer queue)
+unsafe fn find_queue_families(
+    instance: &Instance,
+    surface: &Surface,
+    surface_handle: vk::SurfaceKHR,
+) -> VkResult<(vk::PhysicalDevice, Option<u32>, Option<u32>)> {
+    let mut graphics_queue_family_index = None;
+    let mut transfer_queue_family_index = None;
+    for pd in instance.enumerate_physical_devices()? {
+        for (index, &queue_family_properties) in instance
+            .get_physical_device_queue_family_properties(pd)
+            .iter()
+            .enumerate()
+        {
+            if graphics_queue_family_index.is_none()
+                && queue_family_properties
+                    .queue_flags
+                    .contains(vk::QueueFlags::GRAPHICS)
+                && surface.get_physical_device_surface_support_khr(pd, index as u32, surface_handle)
+            {
+                graphics_queue_family_index = Some(index as u32);
+            } else if transfer_queue_family_index.is_none()
+                && queue_family_properties
+                    .queue_flags
+                    .contains(vk::QueueFlags::TRANSFER)
+                && !queue_family_properties
+                    .queue_flags
+                    .contains(vk::QueueFlags::GRAPHICS)
+            {
+                transfer_queue_family_index = Some(index as u32);
+            }
+            if graphics_queue_family_index.is_some() && transfer_queue_family_index.is_some() {
+                return Ok((pd, graphics_queue_family_index, transfer_queue_family_index));
+            }
+        }
+    }
+    Ok((vk::PhysicalDevice::null(), None, None))
 }
 
 #[cfg(target_os = "windows")]
@@ -138,6 +179,28 @@ impl Vertex {
     }
 }
 
+#[derive(Fail, Debug)]
+pub enum VulkanError {
+    #[fail(display = "{}", _0)]
+    NulError(#[cause] std::ffi::NulError),
+    #[fail(display = "{}", _0)]
+    Str(String),
+    #[fail(display = "{}", _0)]
+    Io(#[cause] std::io::Error),
+    #[fail(display = "{}", _0)]
+    ImageError(#[cause] image::ImageError),
+    #[fail(display = "{}", _0)]
+    SystemTimeError(#[cause] std::time::SystemTimeError),
+    #[fail(display = "{}", _0)]
+    VkError(#[cause] vk::Result),
+}
+
+impl From<vk::Result> for VulkanError {
+    fn from(err: vk::Result) -> VulkanError {
+        VulkanError::VkError(err)
+    }
+}
+
 pub struct VulkanBase {
     entry: Entry,
     instance: Instance,
@@ -148,7 +211,9 @@ pub struct VulkanBase {
 
     physical_device: vk::PhysicalDevice,
     graphics_queue: vk::Queue,
-    queue_family_index: u32,
+    graphics_queue_family_index: u32,
+    transfer_queue: vk::Queue,
+    transfer_queue_family_index: u32,
 
     surface_handle: vk::SurfaceKHR,
     surface_format: vk::SurfaceFormatKHR,
@@ -164,8 +229,9 @@ pub struct VulkanBase {
     render_pass: vk::RenderPass,
     graphics_pipeline: vk::Pipeline,
 
-    command_pool: vk::CommandPool,
-    command_buffers: Vec<vk::CommandBuffer>,
+    graphics_command_pool: vk::CommandPool,
+    graphics_command_buffers: Vec<vk::CommandBuffer>,
+    transfer_command_pool: vk::CommandPool,
 
     image_available_semaphores: Vec<vk::Semaphore>,
     render_finished_semaphores: Vec<vk::Semaphore>,
@@ -182,7 +248,7 @@ pub struct VulkanBase {
 }
 
 impl VulkanBase {
-    pub fn new(screen_width: u32, screen_height: u32) -> VkResult<VulkanBase> {
+    pub fn new(screen_width: u32, screen_height: u32) -> Result<VulkanBase, VulkanError> {
         let events_loop = winit::EventsLoop::new();
         let window = winit::WindowBuilder::new()
             .with_title("Minecrust")
@@ -250,63 +316,48 @@ impl VulkanBase {
             )?;
 
             let surface_handle = create_surface(&entry, &instance, &window)?;
-            let physical_devices = instance.enumerate_physical_devices()?;
             let surface = Surface::new(&entry, &instance);
-            let (physical_device, queue_family_index) = physical_devices
-                .iter()
-                .map(|&physical_device| {
-                    instance
-                        .get_physical_device_queue_family_properties(physical_device)
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(index, info)| {
-                            if info.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                                && surface.get_physical_device_surface_support_khr(
-                                    physical_device,
-                                    index as u32,
-                                    surface_handle,
-                                ) {
-                                Some((physical_device, index as u32))
-                            } else {
-                                None
-                            }
-                        })
-                        .nth(0)
-                })
-                .filter_map(|v| v)
-                .nth(0)
-                .expect("No physical device");
+            let (physical_device, graphics_queue_family_index, transfer_queue_family_index) = {
+                if let (
+                    physical_device,
+                    Some(graphics_queue_family_index),
+                    Some(transfer_queue_family_index),
+                ) = find_queue_families(&instance, &surface, surface_handle)?
+                {
+                    (
+                        physical_device,
+                        graphics_queue_family_index,
+                        transfer_queue_family_index,
+                    )
+                } else {
+                    return Err(VulkanError::Str(
+                        "cannot find suitable queue family".to_string(),
+                    ));
+                }
+            };
             let device_extension_names_raw = [Swapchain::name().as_ptr()];
-            let features = vk::PhysicalDeviceFeatures {
-                shader_clip_distance: 1,
-                ..Default::default()
-            };
-            let priorities = [1.0];
-            let queue_ci = vk::DeviceQueueCreateInfo {
-                s_type: vk::StructureType::DEVICE_QUEUE_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: Default::default(),
-                queue_family_index,
-                p_queue_priorities: priorities.as_ptr(),
-                queue_count: priorities.len() as u32,
-            };
-            let device_ci = vk::DeviceCreateInfo {
-                s_type: vk::StructureType::DEVICE_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: Default::default(),
-                queue_create_info_count: 1,
-                p_queue_create_infos: &queue_ci,
-                enabled_layer_count: 0,
-                pp_enabled_layer_names: ptr::null(),
-                enabled_extension_count: device_extension_names_raw.len() as u32,
-                pp_enabled_extension_names: device_extension_names_raw.as_ptr(),
-                p_enabled_features: &features,
-            };
+            let features = vk::PhysicalDeviceFeatures::builder()
+                .shader_clip_distance(true)
+                .build();
+            let graphics_queue_ci = vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(graphics_queue_family_index)
+                .queue_priorities(&[1.0])
+                .build();
+            let transfer_queue_ci = vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(transfer_queue_family_index)
+                .queue_priorities(&[1.0])
+                .build();
+            let device_ci = vk::DeviceCreateInfo::builder()
+                .queue_create_infos(&[graphics_queue_ci, transfer_queue_ci])
+                .enabled_extension_names(&device_extension_names_raw)
+                .enabled_features(&features)
+                .build();
             let device = instance
                 .create_device(physical_device, &device_ci, None)
                 .unwrap();
             let swapchain = Swapchain::new(&instance, &device);
-            let graphics_queue = device.get_device_queue(queue_family_index, 0);
+            let graphics_queue = device.get_device_queue(graphics_queue_family_index, 0);
+            let transfer_queue = device.get_device_queue(transfer_queue_family_index, 0);
 
             let mut base = VulkanBase {
                 current_frame: 0,
@@ -315,12 +366,14 @@ impl VulkanBase {
                 instance,
                 device,
                 physical_device,
-                queue_family_index,
+                graphics_queue,
+                graphics_queue_family_index,
+                transfer_queue,
+                transfer_queue_family_index,
                 window,
                 swapchain,
                 surface,
                 surface_handle,
-                graphics_queue,
                 debug_messenger,
 
                 surface_format: Default::default(),
@@ -332,8 +385,9 @@ impl VulkanBase {
                 swapchain_framebuffers: Default::default(),
                 graphics_pipeline_layout: Default::default(),
                 graphics_pipeline: Default::default(),
-                command_pool: Default::default(),
-                command_buffers: Default::default(),
+                graphics_command_pool: Default::default(),
+                graphics_command_buffers: Default::default(),
+                transfer_command_pool: Default::default(),
                 image_available_semaphores: Default::default(),
                 render_finished_semaphores: Default::default(),
                 in_flight_fences: Default::default(),
@@ -347,7 +401,7 @@ impl VulkanBase {
             base.create_graphics_pipeline()?;
 
             base.create_framebuffers()?;
-            base.create_command_pool()?;
+            base.create_command_pools()?;
 
             base.vertices = vec![
                 Vertex {
@@ -621,24 +675,32 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn create_command_pool(&mut self) -> VkResult<()> {
-        let command_pool_ci = vk::CommandPoolCreateInfo::builder()
-            .queue_family_index(self.queue_family_index)
+    unsafe fn create_command_pools(&mut self) -> VkResult<()> {
+        let graphics_command_pool_ci = vk::CommandPoolCreateInfo::builder()
+            .queue_family_index(self.graphics_queue_family_index)
             .build();
-        self.command_pool = self.device.create_command_pool(&command_pool_ci, None)?;
+        self.graphics_command_pool = self
+            .device
+            .create_command_pool(&graphics_command_pool_ci, None)?;
+        let transfer_command_pool_ci = vk::CommandPoolCreateInfo::builder()
+            .queue_family_index(self.transfer_queue_family_index)
+            .build();
+        self.transfer_command_pool = self
+            .device
+            .create_command_pool(&transfer_command_pool_ci, None)?;
         Ok(())
     }
 
     unsafe fn create_command_buffers(&mut self) -> VkResult<()> {
         let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.command_pool)
+            .command_pool(self.graphics_command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(self.swapchain_framebuffers.len() as u32)
             .build();
-        self.command_buffers = self
+        self.graphics_command_buffers = self
             .device
             .allocate_command_buffers(&command_buffer_alloc_info)?;
-        for (index, &command_buffer) in self.command_buffers.iter().enumerate() {
+        for (index, &command_buffer) in self.graphics_command_buffers.iter().enumerate() {
             let begin_info = vk::CommandBufferBeginInfo::builder()
                 .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
                 .build();
@@ -781,7 +843,7 @@ impl VulkanBase {
     ) -> VkResult<()> {
         let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
             .level(vk::CommandBufferLevel::PRIMARY)
-            .command_pool(self.command_pool)
+            .command_pool(self.transfer_command_pool)
             .command_buffer_count(1)
             .build();
         let command_buffer = self
@@ -796,17 +858,20 @@ impl VulkanBase {
         let copy_region = vk::BufferCopy::builder().size(size).build();
         self.device
             .cmd_copy_buffer(command_buffer, src, dst, &[copy_region]);
-        self.device.end_command_buffer(command_buffer);
+        self.device.end_command_buffer(command_buffer)?;
 
         let submit_info = vk::SubmitInfo::builder()
             .command_buffers(&[command_buffer])
             .build();
+        let fence_ci = vk::FenceCreateInfo::default();
+        let fence = self.device.create_fence(&fence_ci, None)?;
         self.device
-            .queue_submit(self.graphics_queue, &[submit_info], vk::Fence::null())?;
-        self.device.queue_wait_idle(self.graphics_queue)?;
+            .queue_submit(self.transfer_queue, &[submit_info], fence)?;
+        self.device.wait_for_fences(&[fence], true, std::u64::MAX)?;
+        self.device.destroy_fence(fence, None);
 
         self.device
-            .free_command_buffers(self.command_pool, &[command_buffer]);
+            .free_command_buffers(self.transfer_command_pool, &[command_buffer]);
 
         Ok(())
     }
@@ -896,7 +961,7 @@ impl VulkanBase {
                 let submit_info = vk::SubmitInfo::builder()
                     .wait_semaphores(&[self.image_available_semaphores[self.current_frame]])
                     .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-                    .command_buffers(&[self.command_buffers[image_index as usize]])
+                    .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
                     .signal_semaphores(&signal_semaphores)
                     .build();
 
@@ -978,7 +1043,7 @@ impl VulkanBase {
             self.device.destroy_framebuffer(swapchain_framebuffer, None);
         }
         self.device
-            .free_command_buffers(self.command_pool, &self.command_buffers);
+            .free_command_buffers(self.graphics_command_pool, &self.graphics_command_buffers);
         self.device.destroy_pipeline(self.graphics_pipeline, None);
         self.device
             .destroy_pipeline_layout(self.graphics_pipeline_layout, None);
@@ -1009,7 +1074,10 @@ impl Drop for VulkanBase {
                 self.device.destroy_fence(self.in_flight_fences[i], None);
             }
 
-            self.device.destroy_command_pool(self.command_pool, None);
+            self.device
+                .destroy_command_pool(self.graphics_command_pool, None);
+            self.device
+                .destroy_command_pool(self.transfer_command_pool, None);
             self.device.destroy_device(None);
             self.surface.destroy_surface_khr(self.surface_handle, None);
             destroy_debug_utils_messenger_ext(
