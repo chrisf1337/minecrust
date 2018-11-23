@@ -10,7 +10,6 @@ use byteorder::LittleEndian;
 use crate::na::Vector2;
 use crate::types::*;
 use crate::utils::clamp;
-use failure::Error;
 use failure_derive::Fail;
 use std::{
     ffi::{CStr, CString},
@@ -242,6 +241,9 @@ pub struct VulkanBase {
     vertices: Vec<Vertex>,
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
+    indices: Vec<u16>,
+    index_buffer: vk::Buffer,
+    index_buffer_memory: vk::DeviceMemory,
 
     // debug
     debug_messenger: vk::DebugUtilsMessengerEXT,
@@ -394,6 +396,9 @@ impl VulkanBase {
                 vertices: Default::default(),
                 vertex_buffer: Default::default(),
                 vertex_buffer_memory: Default::default(),
+                indices: Default::default(),
+                index_buffer: Default::default(),
+                index_buffer_memory: Default::default(),
             };
 
             base.create_swapchain(screen_width, screen_height)?;
@@ -405,19 +410,26 @@ impl VulkanBase {
 
             base.vertices = vec![
                 Vertex {
-                    pos: Vector2f::new(0.0, -0.5),
+                    pos: Vector2f::new(-0.5, -0.5),
                     color: Vector3f::new(1.0, 0.0, 0.0),
                 },
                 Vertex {
-                    pos: Vector2f::new(0.5, 0.5),
+                    pos: Vector2f::new(0.5, -0.5),
                     color: Vector3f::new(0.0, 1.0, 0.0),
                 },
                 Vertex {
-                    pos: Vector2f::new(-0.5, 0.5),
+                    pos: Vector2f::new(0.5, 0.5),
                     color: Vector3f::new(0.0, 0.0, 1.0),
                 },
+                Vertex {
+                    pos: Vector2f::new(-0.5, 0.5),
+                    color: Vector3f::new(1.0, 1.0, 1.0),
+                },
             ];
+            base.indices = vec![0, 1, 2, 2, 3, 0];
+
             base.create_vertex_buffer()?;
+            base.create_index_buffer()?;
             base.create_command_buffers()?;
             base.create_sync_objects()?;
             Ok(base)
@@ -623,10 +635,10 @@ impl VulkanBase {
             .logic_op_enable(false)
             .attachments(&[color_blend_attachment])
             .build();
-        let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
-        let dynamic_state_ci = vk::PipelineDynamicStateCreateInfo::builder()
-            .dynamic_states(&dynamic_states)
-            .build();
+        // let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
+        // let dynamic_state_ci = vk::PipelineDynamicStateCreateInfo::builder()
+        //     .dynamic_states(&dynamic_states)
+        //     .build();
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&[])
             .push_constant_ranges(&[])
@@ -733,9 +745,15 @@ impl VulkanBase {
 
             self.device
                 .cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer], &[0]);
+            self.device.cmd_bind_index_buffer(
+                command_buffer,
+                self.index_buffer,
+                0,
+                vk::IndexType::UINT16,
+            );
 
             self.device
-                .cmd_draw(command_buffer, self.vertices.len() as u32, 1, 0, 0);
+                .cmd_draw_indexed(command_buffer, self.indices.len() as u32, 1, 0, 0, 0);
             self.device.cmd_end_render_pass(command_buffer);
             self.device.end_command_buffer(command_buffer)?;
         }
@@ -783,7 +801,8 @@ impl VulkanBase {
     }
 
     unsafe fn create_vertex_buffer(&mut self) -> VkResult<()> {
-        let buffer_size = (self.vertices.len() * std::mem::size_of::<Vertex>()) as vk::DeviceSize;
+        let buffer_size: vk::DeviceSize =
+            (self.vertices.len() * std::mem::size_of::<Vertex>()) as vk::DeviceSize;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             buffer_size as vk::DeviceSize,
@@ -802,7 +821,7 @@ impl VulkanBase {
         self.device.unmap_memory(staging_buffer_memory);
 
         let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
-            buffer_size as vk::DeviceSize,
+            buffer_size,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
@@ -812,6 +831,38 @@ impl VulkanBase {
 
         self.vertex_buffer = vertex_buffer;
         self.vertex_buffer_memory = vertex_buffer_memory;
+
+        Ok(())
+    }
+
+    unsafe fn create_index_buffer(&mut self) -> VkResult<()> {
+        let buffer_size = (std::mem::size_of::<u16>() * self.indices.len()) as vk::DeviceSize;
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            buffer_size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+
+        let data = self.device.map_memory(
+            staging_buffer_memory,
+            0,
+            buffer_size as vk::DeviceSize,
+            vk::MemoryMapFlags::empty(),
+        )? as *mut u16;
+        std::ptr::copy_nonoverlapping(self.indices.as_ptr(), data, self.indices.len());
+        self.device.unmap_memory(staging_buffer_memory);
+
+        let (index_buffer, index_buffer_memory) = self.create_buffer(
+            buffer_size,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+        self.copy_buffer(staging_buffer, index_buffer, buffer_size)?;
+        self.device.destroy_buffer(staging_buffer, None);
+        self.device.free_memory(staging_buffer_memory, None);
+
+        self.index_buffer = index_buffer;
+        self.index_buffer_memory = index_buffer_memory;
 
         Ok(())
     }
@@ -1064,8 +1115,12 @@ impl Drop for VulkanBase {
                 .unwrap();
 
             self.clean_up_swapchain();
+
             self.device.destroy_buffer(self.vertex_buffer, None);
             self.device.free_memory(self.vertex_buffer_memory, None);
+            self.device.destroy_buffer(self.index_buffer, None);
+            self.device.free_memory(self.index_buffer_memory, None);
+
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 self.device
                     .destroy_semaphore(self.render_finished_semaphores[i], None);
