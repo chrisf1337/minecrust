@@ -1,4 +1,6 @@
-use crate::na::{Matrix4, Point3, Quaternion, Transform3, UnitQuaternion, Vector3, Vector4};
+use crate::na::{
+    Matrix4, Point3, Quaternion, Rotation3, Transform3, UnitQuaternion, Vector3, Vector4,
+};
 use gl::types::GLenum;
 
 pub type Matrix4f = Matrix4<f32>;
@@ -8,6 +10,7 @@ pub type Point3f = Point3<f32>;
 pub type Quaternionf = Quaternion<f32>;
 pub type UnitQuaternionf = UnitQuaternion<f32>;
 pub type Transform3f = Transform3<f32>;
+pub type Rotation3f = Rotation3<f32>;
 
 pub struct Vecf(pub Vec<f32>);
 

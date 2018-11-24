@@ -1,3 +1,4 @@
+use alga::general::SubsetOf;
 use ash;
 use ash::{
     extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
@@ -7,9 +8,9 @@ use ash::{
 };
 use byteorder::ByteOrder;
 use byteorder::LittleEndian;
-use crate::na::Vector2;
+use crate::na::{geometry::Perspective3, Vector2};
 use crate::types::*;
-use crate::utils::clamp;
+use crate::utils::{clamp, NSEC_PER_SEC};
 use failure_derive::Fail;
 use std::{
     ffi::{CStr, CString},
@@ -18,6 +19,7 @@ use std::{
     os::raw::*,
     path::Path,
     ptr,
+    time::{Duration, SystemTime},
 };
 #[cfg(target_os = "windows")]
 use winapi;
@@ -27,6 +29,34 @@ use winit::{dpi::LogicalSize, DeviceEvent, Event, KeyboardInput, VirtualKeyCode,
 type Vector2f = Vector2<f32>;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct UniformBufferObject {
+    pub model: Transform3f,
+    pub view: Matrix4f,
+    pub proj: Matrix4f,
+}
+
+impl UniformBufferObject {
+    fn to_vec(&self) -> Vec<f32> {
+        let mut v = vec![];
+        v.extend(self.model.to_homogeneous().as_slice());
+        v.extend(self.view.as_slice());
+        v.extend(self.proj.as_slice());
+        v
+    }
+}
+
+impl Default for UniformBufferObject {
+    fn default() -> Self {
+        UniformBufferObject {
+            model: Transform3f::identity(),
+            view: Matrix4f::identity(),
+            proj: Matrix4f::identity(),
+        }
+    }
+}
 
 fn from_vk_result<T>(result: vk::Result, t: T) -> VkResult<T> {
     match result {
@@ -224,6 +254,7 @@ pub struct VulkanBase {
     swapchain_image_views: Vec<vk::ImageView>,
     swapchain_framebuffers: Vec<vk::Framebuffer>,
 
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     graphics_pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     graphics_pipeline: vk::Pipeline,
@@ -244,6 +275,14 @@ pub struct VulkanBase {
     indices: Vec<u16>,
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
+
+    uniform_buffers: Vec<vk::Buffer>,
+    uniform_buffers_memory: Vec<vk::DeviceMemory>,
+
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
+
+    start_time: SystemTime,
 
     // debug
     debug_messenger: vk::DebugUtilsMessengerEXT,
@@ -385,6 +424,8 @@ impl VulkanBase {
                 swapchain_images: Default::default(),
                 swapchain_image_views: Default::default(),
                 swapchain_framebuffers: Default::default(),
+
+                descriptor_set_layouts: Default::default(),
                 graphics_pipeline_layout: Default::default(),
                 graphics_pipeline: Default::default(),
                 graphics_command_pool: Default::default(),
@@ -399,10 +440,18 @@ impl VulkanBase {
                 indices: Default::default(),
                 index_buffer: Default::default(),
                 index_buffer_memory: Default::default(),
+                uniform_buffers: Default::default(),
+                uniform_buffers_memory: Default::default(),
+
+                descriptor_pool: Default::default(),
+                descriptor_sets: Default::default(),
+
+                start_time: SystemTime::now(),
             };
 
             base.create_swapchain(screen_width, screen_height)?;
             base.create_render_pass()?;
+            base.create_descriptor_set_layout()?;
             base.create_graphics_pipeline()?;
 
             base.create_framebuffers()?;
@@ -430,6 +479,9 @@ impl VulkanBase {
 
             base.create_vertex_buffer()?;
             base.create_index_buffer()?;
+            base.create_uniform_buffer()?;
+            base.create_descriptor_pool()?;
+            base.create_descriptor_sets()?;
             base.create_command_buffers()?;
             base.create_sync_objects()?;
             Ok(base)
@@ -571,6 +623,26 @@ impl VulkanBase {
         Ok(())
     }
 
+    unsafe fn create_descriptor_set_layout(&mut self) -> VkResult<()> {
+        let ubo_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .build();
+        let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
+            .bindings(&[ubo_descriptor_set_layout_binding])
+            .build();
+
+        for _ in &self.swapchain_images {
+            self.descriptor_set_layouts.push(
+                self.device
+                    .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
+            );
+        }
+        Ok(())
+    }
+
     unsafe fn create_graphics_pipeline(&mut self) -> VkResult<()> {
         let vert_module = self.create_shader_module_from_file("src/shaders/triangle-vert.spv")?;
         let frag_module = self.create_shader_module_from_file("src/shaders/triangle-frag.spv")?;
@@ -620,7 +692,7 @@ impl VulkanBase {
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false)
             .build();
         let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
@@ -640,7 +712,7 @@ impl VulkanBase {
         //     .dynamic_states(&dynamic_states)
         //     .build();
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&[])
+            .set_layouts(&self.descriptor_set_layouts)
             .push_constant_ranges(&[])
             .build();
         self.graphics_pipeline_layout = self
@@ -752,6 +824,14 @@ impl VulkanBase {
                 vk::IndexType::UINT16,
             );
 
+            self.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.graphics_pipeline_layout,
+                0,
+                &self.descriptor_sets,
+                &[],
+            );
             self.device
                 .cmd_draw_indexed(command_buffer, self.indices.len() as u32, 1, 0, 0, 0);
             self.device.cmd_end_render_pass(command_buffer);
@@ -864,6 +944,20 @@ impl VulkanBase {
         self.index_buffer = index_buffer;
         self.index_buffer_memory = index_buffer_memory;
 
+        Ok(())
+    }
+
+    unsafe fn create_uniform_buffer(&mut self) -> VkResult<()> {
+        let buffer_size = std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize;
+        for _ in 0..self.swapchain_images.len() {
+            let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
+                buffer_size,
+                vk::BufferUsageFlags::UNIFORM_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            self.uniform_buffers.push(uniform_buffer);
+            self.uniform_buffers_memory.push(uniform_buffer_memory);
+        }
         Ok(())
     }
 
@@ -988,6 +1082,87 @@ impl VulkanBase {
         None
     }
 
+    unsafe fn update_uniform_buffer(&self, current_image: usize) -> VkResult<()> {
+        let time = SystemTime::now().duration_since(self.start_time).unwrap();
+        let time_f = time.as_nanos() as f32 / NSEC_PER_SEC as f32;
+        let mut ubo = UniformBufferObject::default();
+        ubo.model =
+            Rotation3f::from_axis_angle(&Vector3f::z_axis(), time_f * std::f32::consts::FRAC_PI_2)
+                .to_superset();
+        // Rotation3f::from_axis_angle(&Vector3f::z_axis(), 0.0)
+        //     .to_superset();
+        ubo.view = Matrix4f::look_at_rh(
+            &Point3f::new(2.0, 2.0, 2.0),
+            &Point3f::origin(),
+            &Vector3f::z_axis(),
+        );
+        let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
+        let flip_mat = Matrix4f::from_diagonal(&Vector4f::new(1.0, -1.0, 1.0, 1.0));
+        ubo.proj = flip_mat
+            * Perspective3::new(
+                width as f32 / height as f32,
+                f32::to_radians(45.0),
+                0.1,
+                100.0,
+            )
+            .to_homogeneous();
+
+        let data = self.device.map_memory(
+            self.uniform_buffers_memory[current_image],
+            0,
+            std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize,
+            vk::MemoryMapFlags::empty(),
+        )? as *mut f32;
+        let v = ubo.to_vec();
+        std::ptr::copy_nonoverlapping(v.as_ptr(), data, v.len());
+        self.device
+            .unmap_memory(self.uniform_buffers_memory[current_image]);
+
+        Ok(())
+    }
+
+    unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
+        let pool_size = vk::DescriptorPoolSize::builder()
+            .descriptor_count(self.swapchain_images.len() as u32)
+            .build();
+        let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
+            .pool_sizes(&[pool_size])
+            .max_sets(self.swapchain_images.len() as u32)
+            .build();
+        self.descriptor_pool = self
+            .device
+            .create_descriptor_pool(&descriptor_pool_ci, None)?;
+        Ok(())
+    }
+
+    unsafe fn create_descriptor_sets(&mut self) -> VkResult<()> {
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.descriptor_pool)
+            .set_layouts(&self.descriptor_set_layouts)
+            .build();
+        self.descriptor_sets = self
+            .device
+            .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
+
+        for (index, &uniform_buffer) in self.uniform_buffers.iter().enumerate() {
+            let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+                .buffer(uniform_buffer)
+                .offset(0)
+                .range(std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize)
+                .build();
+            let write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[index])
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&[descriptor_buffer_info])
+                .build();
+            self.device
+                .update_descriptor_sets(&[write_descriptor_set], &[]);
+        }
+        Ok(())
+    }
+
     unsafe fn draw_frame(&mut self, resized: bool) -> VkResult<()> {
         self.device.wait_for_fences(
             &[self.in_flight_fences[self.current_frame]],
@@ -1008,6 +1183,7 @@ impl VulkanBase {
             vk::Fence::null(),
         ) {
             Ok((image_index, _)) => {
+                self.update_uniform_buffer(image_index as usize)?;
                 let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
                 let submit_info = vk::SubmitInfo::builder()
                     .wait_semaphores(&[self.image_available_semaphores[self.current_frame]])
@@ -1115,6 +1291,19 @@ impl Drop for VulkanBase {
                 .unwrap();
 
             self.clean_up_swapchain();
+
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+            for &descriptor_set_layout in &self.descriptor_set_layouts {
+                self.device
+                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
+            }
+            for &uniform_buffer in &self.uniform_buffers {
+                self.device.destroy_buffer(uniform_buffer, None);
+            }
+            for &uniform_buffer_memory in &self.uniform_buffers_memory {
+                self.device.free_memory(uniform_buffer_memory, None);
+            }
 
             self.device.destroy_buffer(self.vertex_buffer, None);
             self.device.free_memory(self.vertex_buffer_memory, None);
