@@ -172,8 +172,9 @@ unsafe fn create_surface<E: EntryV1_0, I: InstanceV1_1>(
 
 #[derive(Clone, Copy)]
 struct Vertex {
-    pub pos: Vector2f,
+    pub pos: Vector3f,
     pub color: Vector3f,
+    pub tex_coord: Vector2f,
 }
 
 impl Vertex {
@@ -182,6 +183,7 @@ impl Vertex {
         for vtx in vertices {
             v.extend(vtx.pos.as_slice());
             v.extend(vtx.color.as_slice());
+            v.extend(vtx.tex_coord.as_slice());
         }
         v
     }
@@ -194,19 +196,25 @@ impl Vertex {
             .build()
     }
 
-    fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
         [
             vk::VertexInputAttributeDescription::builder()
                 .binding(0)
                 .location(0)
-                .format(vk::Format::R32G32_SFLOAT)
+                .format(vk::Format::R32G32B32_SFLOAT)
                 .offset(0)
                 .build(),
             vk::VertexInputAttributeDescription::builder()
                 .binding(0)
                 .location(1)
                 .format(vk::Format::R32G32B32_SFLOAT)
-                .offset(std::mem::size_of::<Vector2f>() as u32)
+                .offset(std::mem::size_of::<Vector3f>() as u32)
+                .build(),
+            vk::VertexInputAttributeDescription::builder()
+                .binding(0)
+                .location(2)
+                .format(vk::Format::R32G32_SFLOAT)
+                .offset((std::mem::size_of::<Vector3f>() + std::mem::size_of::<Vector3f>()) as u32)
                 .build(),
         ]
     }
@@ -308,6 +316,8 @@ pub struct VulkanBase {
 
     texture_image: vk::Image,
     texture_image_memory: vk::DeviceMemory,
+    texture_image_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
 
     start_time: SystemTime,
 
@@ -405,6 +415,7 @@ impl VulkanBase {
             };
             let device_extension_names_raw = [Swapchain::name().as_ptr()];
             let features = vk::PhysicalDeviceFeatures::builder()
+                .sampler_anisotropy(true)
                 .shader_clip_distance(true)
                 .build();
             let graphics_queue_ci = vk::DeviceQueueCreateInfo::builder()
@@ -473,6 +484,8 @@ impl VulkanBase {
 
                 texture_image: Default::default(),
                 texture_image_memory: Default::default(),
+                texture_image_view: Default::default(),
+                texture_sampler: Default::default(),
 
                 start_time: SystemTime::now(),
             };
@@ -486,26 +499,36 @@ impl VulkanBase {
             base.create_command_pools()?;
 
             base.vertices = vec![
+                // top left
                 Vertex {
-                    pos: Vector2f::new(-0.5, -0.5),
+                    pos: Vector3f::new(-0.5, 0.0, -0.5),
                     color: Vector3f::new(1.0, 0.0, 0.0),
+                    tex_coord: Vector2f::new(0.0, 0.0),
                 },
+                // top right
                 Vertex {
-                    pos: Vector2f::new(0.5, -0.5),
+                    pos: Vector3f::new(0.5, 0.0, -0.5),
                     color: Vector3f::new(0.0, 1.0, 0.0),
+                    tex_coord: Vector2f::new(1.0, 0.0),
                 },
+                // bottom right
                 Vertex {
-                    pos: Vector2f::new(0.5, 0.5),
+                    pos: Vector3f::new(0.5, 0.0, 0.5),
                     color: Vector3f::new(0.0, 0.0, 1.0),
+                    tex_coord: Vector2f::new(1.0, 1.0),
                 },
+                // bottom left
                 Vertex {
-                    pos: Vector2f::new(-0.5, 0.5),
+                    pos: Vector3f::new(-0.5, 0.0, 0.5),
                     color: Vector3f::new(1.0, 1.0, 1.0),
+                    tex_coord: Vector2f::new(0.0, 1.0),
                 },
             ];
-            base.indices = vec![0, 1, 2, 2, 3, 0];
+            base.indices = vec![0, 3, 2, 0, 2, 1];
 
             base.create_texture_image()?;
+            base.create_texture_image_view()?;
+            base.create_texture_sampler()?;
             base.create_vertex_buffer()?;
             base.create_index_buffer()?;
             base.create_uniform_buffer()?;
@@ -517,7 +540,11 @@ impl VulkanBase {
         }
     }
 
-    unsafe fn create_swapchain(&mut self, screen_width: u32, screen_height: u32) -> VkResult<()> {
+    unsafe fn create_swapchain(
+        &mut self,
+        screen_width: u32,
+        screen_height: u32,
+    ) -> VulkanResult<()> {
         let surface_formats = self
             .surface
             .get_physical_device_surface_formats_khr(self.physical_device, self.surface_handle)?;
@@ -584,34 +611,10 @@ impl VulkanBase {
         self.swapchain_images = self
             .swapchain
             .get_swapchain_images_khr(self.swapchain_handle)?;
-        self.swapchain_image_views = self
-            .swapchain_images
-            .iter()
-            .map(|&image| {
-                let create_view_info = vk::ImageViewCreateInfo {
-                    s_type: vk::StructureType::IMAGE_VIEW_CREATE_INFO,
-                    p_next: ptr::null(),
-                    flags: Default::default(),
-                    view_type: vk::ImageViewType::TYPE_2D,
-                    format: self.surface_format.format,
-                    components: vk::ComponentMapping {
-                        r: vk::ComponentSwizzle::IDENTITY,
-                        g: vk::ComponentSwizzle::IDENTITY,
-                        b: vk::ComponentSwizzle::IDENTITY,
-                        a: vk::ComponentSwizzle::IDENTITY,
-                    },
-                    subresource_range: vk::ImageSubresourceRange {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        base_mip_level: 0,
-                        level_count: 1,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    },
-                    image,
-                };
-                self.device.create_image_view(&create_view_info, None)
-            })
-            .collect::<Result<Vec<vk::ImageView>, vk::Result>>()?;
+        for &swapchain_image in &self.swapchain_images {
+            self.swapchain_image_views
+                .push(self.create_image_view(swapchain_image, self.surface_format.format)?);
+        }
         Ok(())
     }
 
@@ -660,8 +663,14 @@ impl VulkanBase {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
+        let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .build();
         let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&[ubo_descriptor_set_layout_binding])
+            .bindings(&[ubo_descriptor_set_layout_binding, sampler_layout_binding])
             .build();
 
         for _ in &self.swapchain_images {
@@ -670,6 +679,7 @@ impl VulkanBase {
                     .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
             );
         }
+
         Ok(())
     }
 
@@ -723,6 +733,7 @@ impl VulkanBase {
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            // .front_face(vk::FrontFace::CLOCKWISE)
             .depth_bias_enable(false)
             .build();
         let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
@@ -985,7 +996,6 @@ impl VulkanBase {
             self.graphics_queue,
             self.graphics_command_pool,
             texture_image,
-            vk::Format::R8G8B8A8_UNORM,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
@@ -1001,7 +1011,6 @@ impl VulkanBase {
             self.graphics_queue,
             self.graphics_command_pool,
             texture_image,
-            vk::Format::R8G8B8A8_UNORM,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         )?;
@@ -1012,12 +1021,61 @@ impl VulkanBase {
         Ok(())
     }
 
+    unsafe fn create_image_view(
+        &self,
+        image: vk::Image,
+        format: vk::Format,
+    ) -> VulkanResult<vk::ImageView> {
+        let image_view_ci = vk::ImageViewCreateInfo::builder()
+            .image(image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(format)
+            .subresource_range(
+                vk::ImageSubresourceRange::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_mip_level(0)
+                    .level_count(1)
+                    .base_array_layer(0)
+                    .layer_count(1)
+                    .build(),
+            )
+            .build();
+        Ok(self.device.create_image_view(&image_view_ci, None)?)
+    }
+
+    unsafe fn create_texture_image_view(&mut self) -> VulkanResult<()> {
+        self.texture_image_view =
+            self.create_image_view(self.texture_image, vk::Format::R8G8B8A8_UNORM)?;
+        Ok(())
+    }
+
+    unsafe fn create_texture_sampler(&mut self) -> VulkanResult<()> {
+        let sampler_ci = vk::SamplerCreateInfo::builder()
+            .mag_filter(vk::Filter::LINEAR)
+            .min_filter(vk::Filter::LINEAR)
+            .address_mode_u(vk::SamplerAddressMode::REPEAT)
+            .address_mode_v(vk::SamplerAddressMode::REPEAT)
+            .address_mode_w(vk::SamplerAddressMode::REPEAT)
+            .anisotropy_enable(false)
+            .max_anisotropy(16.0)
+            .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+            .unnormalized_coordinates(false)
+            .compare_enable(false)
+            .compare_op(vk::CompareOp::ALWAYS)
+            .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+            .mip_lod_bias(0.0)
+            .min_lod(0.0)
+            .max_lod(0.0)
+            .build();
+        self.texture_sampler = self.device.create_sampler(&sampler_ci, None)?;
+        Ok(())
+    }
+
     unsafe fn transition_image_layout(
         &self,
         queue: vk::Queue,
         command_pool: vk::CommandPool,
         image: vk::Image,
-        _format: vk::Format,
         old_layout: vk::ImageLayout,
         new_layout: vk::ImageLayout,
     ) -> VulkanResult<()> {
@@ -1309,18 +1367,19 @@ impl VulkanBase {
         let time = SystemTime::now().duration_since(self.start_time).unwrap();
         let time_f = time.as_nanos() as f32 / NSEC_PER_SEC as f32;
         let mut ubo = UniformBufferObject::default();
-        ubo.model =
-            Rotation3f::from_axis_angle(&Vector3f::z_axis(), time_f * std::f32::consts::FRAC_PI_2)
-                .to_superset();
-        // Rotation3f::from_axis_angle(&Vector3f::z_axis(), 0.0)
-        //     .to_superset();
+        ubo.model = Transform3f::identity();
+        // ubo.model =
+        //     Rotation3f::from_axis_angle(&Vector3f::y_axis(), time_f * std::f32::consts::FRAC_PI_2)
+        //         .to_superset();
         ubo.view = Matrix4f::look_at_rh(
-            &Point3f::new(2.0, 2.0, 2.0),
+            &Point3f::new(0.0, 1.0, 1.0),
             &Point3f::origin(),
-            &Vector3f::z_axis(),
+            &Vector3f::y_axis(),
         );
+        // ubo.view = Matrix4f::identity();
         let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
         let flip_mat = Matrix4f::from_diagonal(&Vector4f::new(1.0, -1.0, 1.0, 1.0));
+        // let flip_mat = Matrix4f::identity();
         ubo.proj = flip_mat
             * Perspective3::new(
                 width as f32 / height as f32,
@@ -1329,6 +1388,7 @@ impl VulkanBase {
                 100.0,
             )
             .to_homogeneous();
+        // ubo.proj = Matrix4f::identity();
 
         let data = self.device.map_memory(
             self.uniform_buffers_memory[current_image],
@@ -1345,11 +1405,16 @@ impl VulkanBase {
     }
 
     unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
-        let pool_size = vk::DescriptorPoolSize::builder()
+        let uniforms_pool_size = vk::DescriptorPoolSize::builder()
+            .ty(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(self.swapchain_images.len() as u32)
+            .build();
+        let sampler_pool_size = vk::DescriptorPoolSize::builder()
+            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .descriptor_count(self.swapchain_images.len() as u32)
             .build();
         let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&[pool_size])
+            .pool_sizes(&[uniforms_pool_size, sampler_pool_size])
             .max_sets(self.swapchain_images.len() as u32)
             .build();
         self.descriptor_pool = self
@@ -1373,15 +1438,29 @@ impl VulkanBase {
                 .offset(0)
                 .range(std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize)
                 .build();
-            let write_descriptor_set = vk::WriteDescriptorSet::builder()
+            let descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(self.texture_image_view)
+                .sampler(self.texture_sampler)
+                .build();
+            let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(self.descriptor_sets[index])
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(&[descriptor_buffer_info])
                 .build();
-            self.device
-                .update_descriptor_sets(&[write_descriptor_set], &[]);
+            let image_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[index])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&[descriptor_image_info])
+                .build();
+            self.device.update_descriptor_sets(
+                &[buffer_write_descriptor_set, image_write_descriptor_set],
+                &[],
+            );
         }
         Ok(())
     }
@@ -1555,6 +1634,9 @@ impl Drop for VulkanBase {
 
             self.clean_up_swapchain();
 
+            self.device.destroy_sampler(self.texture_sampler, None);
+            self.device
+                .destroy_image_view(self.texture_image_view, None);
             self.device.destroy_image(self.texture_image, None);
             self.device.free_memory(self.texture_image_memory, None);
 
