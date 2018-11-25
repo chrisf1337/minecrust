@@ -11,6 +11,7 @@ use byteorder::LittleEndian;
 use crate::na::{geometry::Perspective3, Vector2};
 use crate::types::*;
 use crate::utils::{clamp, NSEC_PER_SEC};
+use crate::vulkan::command_buffer::CommandBuffer;
 use failure_derive::Fail;
 use image;
 use std::{
@@ -26,6 +27,8 @@ use std::{
 use winapi;
 use winit;
 use winit::{dpi::LogicalSize, DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+
+mod command_buffer;
 
 type Vector2f = Vector2<f32>;
 
@@ -264,7 +267,7 @@ impl From<std::io::Error> for VulkanError {
     }
 }
 
-type VulkanResult<T> = Result<T, VulkanError>;
+pub type VulkanResult<T> = Result<T, VulkanError>;
 
 pub struct VulkanBase {
     entry: Entry,
@@ -1069,30 +1072,33 @@ impl VulkanBase {
         self.texture_image = texture_image;
         self.texture_image_memory = texture_image_memory;
 
-        self.transition_image_layout(
+        let command_buffer = CommandBuffer::new(
+            &self.device,
             self.graphics_queue,
             self.graphics_command_pool,
+        )?;
+        self.transition_image_layout(
+            &command_buffer,
             texture_image,
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
         self.copy_buffer_to_image(
-            self.graphics_queue,
-            self.graphics_command_pool,
+            &command_buffer,
             staging_buffer,
             texture_image,
             img_width,
             img_height,
         )?;
         self.transition_image_layout(
-            self.graphics_queue,
-            self.graphics_command_pool,
+            &command_buffer,
             texture_image,
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         )?;
+        command_buffer.submit()?;
 
         self.device.destroy_buffer(staging_buffer, None);
         self.device.free_memory(staging_buffer_memory, None);
@@ -1156,15 +1162,12 @@ impl VulkanBase {
 
     unsafe fn transition_image_layout(
         &self,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
+        command_buffer: &CommandBuffer,
         image: vk::Image,
         format: vk::Format,
         old_layout: vk::ImageLayout,
         new_layout: vk::ImageLayout,
     ) -> VulkanResult<()> {
-        let command_buffer = self.begin_single_time_commands(command_pool)?;
-
         let mut barrier_builder = vk::ImageMemoryBarrier::builder()
             .old_layout(old_layout)
             .new_layout(new_layout)
@@ -1229,7 +1232,7 @@ impl VulkanBase {
 
         let barrier = barrier_builder.build();
         self.device.cmd_pipeline_barrier(
-            command_buffer,
+            command_buffer.command_buffer,
             source_stage,
             destination_stage,
             vk::DependencyFlags::empty(),
@@ -1238,20 +1241,17 @@ impl VulkanBase {
             &[barrier],
         );
 
-        self.end_single_time_commands(queue, command_pool, command_buffer)
+        Ok(())
     }
 
     unsafe fn copy_buffer_to_image(
         &self,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
+        command_buffer: &CommandBuffer,
         buffer: vk::Buffer,
         image: vk::Image,
         width: u32,
         height: u32,
     ) -> VulkanResult<()> {
-        let command_buffer = self.begin_single_time_commands(command_pool)?;
-
         let region = vk::BufferImageCopy::builder()
             .buffer_offset(0)
             .buffer_row_length(0)
@@ -1272,14 +1272,14 @@ impl VulkanBase {
             })
             .build();
         self.device.cmd_copy_buffer_to_image(
-            command_buffer,
+            command_buffer.command_buffer,
             buffer,
             image,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             &[region],
         );
 
-        self.end_single_time_commands(queue, command_pool, command_buffer)
+        Ok(())
     }
 
     unsafe fn create_vertex_buffer(&mut self) -> VulkanResult<()> {
@@ -1587,14 +1587,19 @@ impl VulkanBase {
             self.create_image_view(depth_image, depth_format, vk::ImageAspectFlags::DEPTH)?;
         self.depth_image = depth_image;
         self.depth_image_memory = depth_image_memory;
-        self.transition_image_layout(
+        let command_buffer = CommandBuffer::new(
+            &self.device,
             self.graphics_queue,
             self.graphics_command_pool,
+        )?;
+        self.transition_image_layout(
+            &command_buffer,
             self.depth_image,
             depth_format,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         )?;
+        command_buffer.submit()?;
         Ok(())
     }
 
