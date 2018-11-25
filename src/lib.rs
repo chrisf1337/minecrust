@@ -5,6 +5,8 @@
 
 use nalgebra as na;
 
+#[macro_use]
+pub mod utils;
 pub mod bvh;
 pub mod camera;
 pub mod debug;
@@ -13,7 +15,6 @@ pub mod event_handlers;
 pub mod geometry;
 pub mod gl;
 pub mod types;
-pub mod utils;
 pub mod vulkan;
 
 pub use crate::types::*;
