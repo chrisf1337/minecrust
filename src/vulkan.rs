@@ -1,7 +1,10 @@
+mod command_buffer;
+mod texture;
+
 use crate::na::{geometry::Perspective3, Vector2};
 use crate::types::*;
 use crate::utils::{clamp, NSEC_PER_SEC};
-use crate::vulkan::command_buffer::CommandBuffer;
+use crate::vulkan::{command_buffer::CommandBuffer, texture::Texture};
 use ash;
 use ash::{
     extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
@@ -14,6 +17,7 @@ use byteorder::LittleEndian;
 use failure_derive::Fail;
 use image;
 use std::{
+    collections::HashMap,
     ffi::{CStr, CString},
     fs::File,
     io::prelude::*,
@@ -26,8 +30,6 @@ use std::{
 use winapi;
 use winit;
 use winit::{dpi::LogicalSize, DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
-
-mod command_buffer;
 
 type Vector2f = Vector2<f32>;
 
@@ -320,10 +322,7 @@ pub struct VulkanBase {
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
 
-    texture_image: vk::Image,
-    mip_levels: u32,
-    texture_image_memory: vk::DeviceMemory,
-    texture_image_view: vk::ImageView,
+    textures: HashMap<String, Texture>,
     texture_sampler: vk::Sampler,
 
     depth_image: vk::Image,
@@ -500,10 +499,8 @@ impl VulkanBase {
                 descriptor_pool: Default::default(),
                 descriptor_sets: Default::default(),
 
-                texture_image: Default::default(),
-                mip_levels: 0,
-                texture_image_memory: Default::default(),
-                texture_image_view: Default::default(),
+                textures: HashMap::default(),
+
                 texture_sampler: Default::default(),
 
                 depth_image: Default::default(),
@@ -583,8 +580,14 @@ impl VulkanBase {
             base.create_color_resources()?;
             base.create_depth_resources()?;
             base.create_framebuffers()?;
-            base.create_texture_image()?;
-            base.create_texture_image_view()?;
+
+            let texture = base.create_texture_image("assets/texture.jpg")?;
+            let cobblestone_texture =
+                base.create_texture_image("assets/cobblestone-border-arrow.png")?;
+            base.textures.insert("texture".to_string(), texture);
+            base.textures
+                .insert("cobblestone".to_string(), cobblestone_texture);
+
             base.create_texture_sampler()?;
             base.create_vertex_buffer()?;
             base.create_index_buffer()?;
@@ -1115,11 +1118,11 @@ impl VulkanBase {
         Ok((image, image_memory))
     }
 
-    unsafe fn create_texture_image(&mut self) -> VulkanResult<()> {
-        let img = image::open("assets/texture.jpg")?.to_rgba();
+    unsafe fn create_texture_image<P: AsRef<Path>>(&mut self, path: P) -> VulkanResult<Texture> {
+        let img = image::open(path)?.to_rgba();
         let (img_width, img_height) = img.dimensions();
         let img_size = vk::DeviceSize::from(img_width * img_height * 4);
-        self.mip_levels = f32::floor(f32::log2(u32::max(img_width, img_height) as f32)) as u32 + 1;
+        let mip_levels = f32::floor(f32::log2(u32::max(img_width, img_height) as f32)) as u32 + 1;
 
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             img_size,
@@ -1140,7 +1143,7 @@ impl VulkanBase {
         let (texture_image, texture_image_memory) = self.create_image(
             img_width,
             img_height,
-            self.mip_levels,
+            mip_levels,
             vk::SampleCountFlags::TYPE_1,
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageTiling::OPTIMAL,
@@ -1149,8 +1152,6 @@ impl VulkanBase {
                 | vk::ImageUsageFlags::SAMPLED,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
-        self.texture_image = texture_image;
-        self.texture_image_memory = texture_image_memory;
 
         let command_buffer = CommandBuffer::new(
             &self.device,
@@ -1161,7 +1162,7 @@ impl VulkanBase {
             &command_buffer,
             texture_image,
             vk::Format::R8G8B8A8_UNORM,
-            self.mip_levels,
+            mip_levels,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
@@ -1179,13 +1180,19 @@ impl VulkanBase {
             vk::Format::R8G8B8A8_UNORM,
             img_width,
             img_height,
-            self.mip_levels,
+            mip_levels,
         )?;
 
         self.device.destroy_buffer(staging_buffer, None);
         self.device.free_memory(staging_buffer_memory, None);
 
-        Ok(())
+        let texture_image_view = self.create_texture_image_view(texture_image, mip_levels)?;
+
+        Ok(Texture {
+            image: texture_image,
+            view: texture_image_view,
+            memory: texture_image_memory,
+        })
     }
 
     unsafe fn create_image_view(
@@ -1355,19 +1362,22 @@ impl VulkanBase {
         command_buffer.submit()
     }
 
-    unsafe fn create_texture_image_view(&mut self) -> VulkanResult<()> {
-        self.texture_image_view = self.create_image_view(
-            self.texture_image,
+    unsafe fn create_texture_image_view(
+        &mut self,
+        texture_image: vk::Image,
+        mip_levels: u32,
+    ) -> VulkanResult<vk::ImageView> {
+        self.create_image_view(
+            texture_image,
             vk::Format::R8G8B8A8_UNORM,
-            self.mip_levels,
+            mip_levels,
             vk::ImageAspectFlags::COLOR,
-        )?;
-        Ok(())
+        )
     }
 
     unsafe fn create_texture_sampler(&mut self) -> VulkanResult<()> {
         let sampler_ci = vk::SamplerCreateInfo::builder()
-            .mag_filter(vk::Filter::LINEAR)
+            .mag_filter(vk::Filter::NEAREST)
             .min_filter(vk::Filter::LINEAR)
             .address_mode_u(vk::SamplerAddressMode::REPEAT)
             .address_mode_v(vk::SamplerAddressMode::REPEAT)
@@ -1381,7 +1391,7 @@ impl VulkanBase {
             .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
             .mip_lod_bias(0.0)
             .min_lod(0.0)
-            .max_lod(self.mip_levels as f32)
+            .max_lod(100.0)
             .build();
         self.texture_sampler = self.device.create_sampler(&sampler_ci, None)?;
         Ok(())
@@ -1785,7 +1795,7 @@ impl VulkanBase {
                 .build();
             let descriptor_image_info = vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(self.texture_image_view)
+                .image_view(self.textures["cobblestone"].view)
                 .sampler(self.texture_sampler)
                 .build();
             let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
@@ -2094,10 +2104,12 @@ impl Drop for VulkanBase {
             self.clean_up_swapchain();
 
             self.device.destroy_sampler(self.texture_sampler, None);
-            self.device
-                .destroy_image_view(self.texture_image_view, None);
-            self.device.destroy_image(self.texture_image, None);
-            self.device.free_memory(self.texture_image_memory, None);
+
+            for texture in self.textures.values() {
+                self.device.destroy_image_view(texture.view, None);
+                self.device.destroy_image(texture.image, None);
+                self.device.free_memory(texture.memory, None);
+            }
 
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
