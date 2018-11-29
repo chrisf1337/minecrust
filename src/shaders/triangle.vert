@@ -14,8 +14,12 @@ layout (binding = 0) uniform UniformBufferObject {
     mat4 proj;
 } ubo;
 
+layout (push_constant) uniform PushConsts {
+    mat4 vp;
+} pushConsts;
+
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
+    gl_Position = pushConsts.vp * vec4(inPosition, 1.0);
     fragColor = inColor;
     fragTexCoord = inTexCoord;
 }

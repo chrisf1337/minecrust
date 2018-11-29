@@ -337,6 +337,12 @@ pub struct VulkanBase {
 
     start_time: SystemTime,
 
+    // uniforms
+    view_mat: Matrix4f,
+    proj_mat: Matrix4f,
+
+    semaphore: vk::Semaphore,
+
     // debug
     debug_messenger: vk::DebugUtilsMessengerEXT,
 }
@@ -453,6 +459,25 @@ impl VulkanBase {
             let graphics_queue = device.get_device_queue(graphics_queue_family_index, 0);
             let transfer_queue = device.get_device_queue(transfer_queue_family_index, 0);
 
+            let view_mat = Matrix4f::look_at_rh(
+                &Point3f::new(0.0, 1.0, 1.0),
+                &Point3f::origin(),
+                &Vector3f::y_axis(),
+            );
+            let mut flip_mat = Matrix4f::from_diagonal(&Vector4f::new(1.0, -1.0, 0.5, 1.0));
+            flip_mat[(2, 3)] = 0.5;
+            let proj_mat = flip_mat
+                * Perspective3::new(
+                    screen_width as f32 / screen_height as f32,
+                    f32::to_radians(45.0),
+                    0.1,
+                    100.0,
+                )
+                .to_homogeneous();
+
+            let semaphore_ci = vk::SemaphoreCreateInfo::default();
+            let semaphore = device.create_semaphore(&semaphore_ci, None)?;
+
             let mut base = VulkanBase {
                 current_frame: 0,
                 events_loop,
@@ -514,6 +539,11 @@ impl VulkanBase {
                 msaa_samples: Default::default(),
 
                 start_time: SystemTime::now(),
+
+                semaphore,
+
+                view_mat,
+                proj_mat,
             };
 
             base.msaa_samples = base.get_max_usable_sample_count();
@@ -893,9 +923,14 @@ impl VulkanBase {
             .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
+        let push_constant_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .size(std::mem::size_of::<Matrix4f>() as u32)
+            .offset(0)
+            .build();
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&self.descriptor_set_layouts)
-            .push_constant_ranges(&[])
+            .push_constant_ranges(&[push_constant_range])
             .build();
         self.graphics_pipeline_layout = self
             .device
@@ -1173,7 +1208,7 @@ impl VulkanBase {
             img_width,
             img_height,
         )?;
-        command_buffer.submit()?;
+        command_buffer.submit(&[])?;
 
         self.generate_mipmaps(
             texture_image,
@@ -1359,7 +1394,7 @@ impl VulkanBase {
             &[barrier],
         );
 
-        command_buffer.submit()
+        command_buffer.submit(&[])
     }
 
     unsafe fn create_texture_image_view(
@@ -1625,7 +1660,7 @@ impl VulkanBase {
     }
 
     unsafe fn create_sync_objects(&mut self) -> VkResult<()> {
-        let semaphore_ci = vk::SemaphoreCreateInfo::default();
+        let semaphore_ci = vk::SemaphoreCreateInfo::builder().build();
         let fence_ci = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED)
             .build();
@@ -1856,7 +1891,7 @@ impl VulkanBase {
             vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         )?;
 
-        command_buffer.submit()?;
+        command_buffer.submit(&[])?;
         Ok(())
     }
 
@@ -1891,7 +1926,7 @@ impl VulkanBase {
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         )?;
-        command_buffer.submit()?;
+        command_buffer.submit(&[])?;
         Ok(())
     }
 
@@ -1989,10 +2024,34 @@ impl VulkanBase {
         ) {
             Ok((image_index, _)) => {
                 self.update_uniform_buffer(image_index as usize)?;
+
+                let mat = self.proj_mat * self.view_mat;
+                let mut data = [0u8; 16 * std::mem::size_of::<f32>()];
+                LittleEndian::write_f32_into(mat.as_slice(), &mut data);
+                let command_buffer = CommandBuffer::new(
+                    &self.device,
+                    self.graphics_queue,
+                    self.graphics_command_pool,
+                )?;
+                self.device.cmd_push_constants(
+                    command_buffer.command_buffer,
+                    self.graphics_pipeline_layout,
+                    vk::ShaderStageFlags::VERTEX,
+                    0,
+                    &data,
+                );
+                command_buffer.submit(&[self.semaphore])?;
+
                 let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
                 let submit_info = vk::SubmitInfo::builder()
-                    .wait_semaphores(&[self.image_available_semaphores[self.current_frame]])
-                    .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+                    .wait_semaphores(&[
+                        self.image_available_semaphores[self.current_frame],
+                        self.semaphore,
+                    ])
+                    .wait_dst_stage_mask(&[
+                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                        vk::PipelineStageFlags::VERTEX_SHADER,
+                    ])
                     .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
                     .signal_semaphores(&signal_semaphores)
                     .build();
@@ -2129,6 +2188,7 @@ impl Drop for VulkanBase {
             self.device.destroy_buffer(self.index_buffer, None);
             self.device.free_memory(self.index_buffer_memory, None);
 
+            self.device.destroy_semaphore(self.semaphore, None);
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 self.device
                     .destroy_semaphore(self.render_finished_semaphores[i], None);
