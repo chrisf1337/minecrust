@@ -4,26 +4,13 @@
 
 use nalgebra as na;
 
-use alga::general::SubsetOf;
 use crate::na::{Perspective3, Rotation3, Translation3};
+use alga::general::SubsetOf;
 use failure::{err_msg, Error};
 use failure_derive::Fail;
 use gl::types::*;
 use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
-use minecrust::{
-    camera::Camera,
-    debug,
-    ecs::{
-        BoundingBoxComponent, BoundingBoxComponentSystem, CameraAnimation,
-        PrimitiveGeometryComponent, RenderState, RenderSystem, TransformComponent,
-    },
-    event_handlers::on_device_event,
-    geometry::{rectangle::Rectangle, square::Square, unitcube::UnitCube, PrimitiveGeometry},
-    gl::shader::{Program, Shader},
-    gl::{AttributeFormat, VertexArrayObject},
-    types::*,
-    vulkan::VulkanBase,
-};
+use minecrust::game::Game;
 use specs::prelude::*;
 use std::{
     collections::HashSet,
@@ -81,8 +68,8 @@ impl From<std::time::SystemTimeError> for MainError {
     }
 }
 fn main() -> Result<(), Error> {
-    let mut vulkan_base = VulkanBase::new(1024, 768)?;
-    vulkan_base.start();
+    let mut game = Game::new()?;
+    game.start();
     Ok(())
     // let mut events_loop = glutin::EventsLoop::new();
     // let window = glutin::WindowBuilder::new()

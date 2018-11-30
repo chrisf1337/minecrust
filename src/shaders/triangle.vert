@@ -15,11 +15,12 @@ layout (binding = 0) uniform UniformBufferObject {
 } ubo;
 
 layout (push_constant) uniform PushConsts {
-    mat4 vp;
+    mat4 view_mat;
+    mat4 proj_mat;
 } pushConsts;
 
 void main() {
-    gl_Position = pushConsts.vp * vec4(inPosition, 1.0);
+    gl_Position = pushConsts.proj_mat * pushConsts.view_mat * vec4(inPosition, 1.0);
     fragColor = inColor;
     fragTexCoord = inTexCoord;
 }

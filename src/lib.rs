@@ -12,9 +12,12 @@ pub mod camera;
 pub mod debug;
 pub mod ecs;
 pub mod event_handlers;
+pub mod game_state;
 pub mod geometry;
 pub mod gl;
+pub mod renderer;
 pub mod types;
 pub mod vulkan;
+pub mod game;
 
 pub use crate::types::*;

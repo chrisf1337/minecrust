@@ -1,7 +1,9 @@
 mod command_buffer;
 mod texture;
 
+use crate::game_state::GameState;
 use crate::na::{geometry::Perspective3, Vector2};
+use crate::renderer::{Renderer, RendererResult};
 use crate::types::*;
 use crate::utils::{clamp, NSEC_PER_SEC};
 use crate::vulkan::{command_buffer::CommandBuffer, texture::Texture};
@@ -29,7 +31,7 @@ use std::{
 #[cfg(target_os = "windows")]
 use winapi;
 use winit;
-use winit::{dpi::LogicalSize, DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::dpi::LogicalSize;
 
 type Vector2f = Vector2<f32>;
 
@@ -59,6 +61,31 @@ impl Default for UniformBufferObject {
             model: Transform3f::identity(),
             view: Matrix4f::identity(),
             proj: Matrix4f::identity(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct UniformPushConstants {
+    pub view_mat: Matrix4f,
+    pub proj_mat: Matrix4f,
+}
+
+impl UniformPushConstants {
+    fn to_vec(&self) -> Vec<f32> {
+        let mut v = vec![];
+        v.extend(self.view_mat.as_slice());
+        v.extend(self.proj_mat.as_slice());
+        v
+    }
+}
+
+impl Default for UniformPushConstants {
+    fn default() -> Self {
+        UniformPushConstants {
+            view_mat: Matrix4f::identity(),
+            proj_mat: Matrix4f::identity(),
         }
     }
 }
@@ -337,9 +364,7 @@ pub struct VulkanBase {
 
     start_time: SystemTime,
 
-    // uniforms
-    view_mat: Matrix4f,
-    proj_mat: Matrix4f,
+    uniform_push_constants: UniformPushConstants,
 
     semaphore: vk::Semaphore,
 
@@ -352,7 +377,7 @@ impl VulkanBase {
         let events_loop = winit::EventsLoop::new();
         let window = winit::WindowBuilder::new()
             .with_title("Minecrust")
-            .with_resizable(false)
+            .with_resizable(true)
             .with_dimensions(LogicalSize::new(
                 f64::from(screen_width),
                 f64::from(screen_height),
@@ -460,7 +485,7 @@ impl VulkanBase {
             let transfer_queue = device.get_device_queue(transfer_queue_family_index, 0);
 
             let view_mat = Matrix4f::look_at_rh(
-                &Point3f::new(0.0, 1.0, 1.0),
+                &Point3f::new(5.0, 1.0, 5.0),
                 &Point3f::origin(),
                 &Vector3f::y_axis(),
             );
@@ -542,8 +567,7 @@ impl VulkanBase {
 
                 semaphore,
 
-                view_mat,
-                proj_mat,
+                uniform_push_constants: UniformPushConstants { view_mat, proj_mat },
             };
 
             base.msaa_samples = base.get_max_usable_sample_count();
@@ -925,7 +949,7 @@ impl VulkanBase {
             .stencil_test_enable(false);
         let push_constant_range = vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .size(std::mem::size_of::<Matrix4f>() as u32)
+            .size(std::mem::size_of::<UniformBufferObject>() as u32)
             .offset(0)
             .build();
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
@@ -2003,132 +2027,6 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn draw_frame(&mut self, resized: bool) -> VulkanResult<()> {
-        self.device.wait_for_fences(
-            &[self.in_flight_fences[self.current_frame]],
-            true,
-            std::u64::MAX,
-        )?;
-
-        if resized {
-            self.recreate_swapchain()?;
-            println!("recreated swapchain");
-            return Ok(());
-        }
-
-        match self.swapchain.acquire_next_image_khr(
-            self.swapchain_handle,
-            std::u64::MAX,
-            self.image_available_semaphores[self.current_frame],
-            vk::Fence::null(),
-        ) {
-            Ok((image_index, _)) => {
-                self.update_uniform_buffer(image_index as usize)?;
-
-                let mat = self.proj_mat * self.view_mat;
-                let mut data = [0u8; 16 * std::mem::size_of::<f32>()];
-                LittleEndian::write_f32_into(mat.as_slice(), &mut data);
-                let command_buffer = CommandBuffer::new(
-                    &self.device,
-                    self.graphics_queue,
-                    self.graphics_command_pool,
-                )?;
-                self.device.cmd_push_constants(
-                    command_buffer.command_buffer,
-                    self.graphics_pipeline_layout,
-                    vk::ShaderStageFlags::VERTEX,
-                    0,
-                    &data,
-                );
-                command_buffer.submit(&[self.semaphore])?;
-
-                let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
-                let submit_info = vk::SubmitInfo::builder()
-                    .wait_semaphores(&[
-                        self.image_available_semaphores[self.current_frame],
-                        self.semaphore,
-                    ])
-                    .wait_dst_stage_mask(&[
-                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                        vk::PipelineStageFlags::VERTEX_SHADER,
-                    ])
-                    .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
-                    .signal_semaphores(&signal_semaphores)
-                    .build();
-
-                self.device
-                    .reset_fences(&[self.in_flight_fences[self.current_frame]])?;
-                self.device.queue_submit(
-                    self.graphics_queue,
-                    &[submit_info],
-                    self.in_flight_fences[self.current_frame],
-                )?;
-
-                let swapchains = [self.swapchain_handle];
-                let present_info = vk::PresentInfoKHR::builder()
-                    .wait_semaphores(&signal_semaphores)
-                    .swapchains(&swapchains)
-                    .image_indices(&[image_index])
-                    .build();
-
-                match self
-                    .swapchain
-                    .queue_present_khr(self.graphics_queue, &present_info)
-                {
-                    Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                        self.recreate_swapchain()?
-                    }
-                    Ok(false) => (),
-                    Err(e) => return Err(e.into()),
-                }
-                self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
-                Ok(())
-            }
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => self.recreate_swapchain(),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    pub fn start(&mut self) {
-        let mut running = true;
-        let mut just_started = true;
-        while running {
-            let mut resized = false;
-            self.events_loop.poll_events(|event| match event {
-                Event::DeviceEvent { event, .. } => match event {
-                    DeviceEvent::Key(KeyboardInput {
-                        virtual_keycode: Some(keycode),
-                        ..
-                    }) => {
-                        if keycode == VirtualKeyCode::Escape {
-                            running = false;
-                        }
-                    }
-                    _ => (),
-                },
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::CloseRequested => running = false,
-                    WindowEvent::Resized(LogicalSize { width, height }) => {
-                        // FIXME: handle minimization?
-                        // Right now we don't allow the window to be resized
-                        if just_started {
-                            // When the window is first created, a resized event is sent
-                            just_started = false;
-                        } else {
-                            println!("resized to ({}, {})", width, height);
-                            resized = true;
-                        }
-                    }
-                    _ => (),
-                },
-                _ => (),
-            });
-            unsafe {
-                let _ = self.draw_frame(resized);
-            }
-        }
-    }
-
     unsafe fn clean_up_swapchain(&mut self) {
         self.device.destroy_image_view(self.color_image_view, None);
         self.device.destroy_image(self.color_image, None);
@@ -2212,5 +2110,99 @@ impl Drop for VulkanBase {
             .unwrap();
             self.instance.destroy_instance(None);
         }
+    }
+}
+
+impl Renderer for VulkanBase {
+    unsafe fn draw_frame(&mut self, _game_state: &GameState, resized: bool) -> RendererResult<()> {
+        self.device.wait_for_fences(
+            &[self.in_flight_fences[self.current_frame]],
+            true,
+            std::u64::MAX,
+        )?;
+
+        if resized {
+            self.recreate_swapchain()?;
+            println!("recreated swapchain");
+            return Ok(());
+        }
+
+        match self.swapchain.acquire_next_image_khr(
+            self.swapchain_handle,
+            std::u64::MAX,
+            self.image_available_semaphores[self.current_frame],
+            vk::Fence::null(),
+        ) {
+            Ok((image_index, _)) => {
+                self.update_uniform_buffer(image_index as usize)?;
+
+                let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
+                LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
+                let command_buffer = CommandBuffer::new(
+                    &self.device,
+                    self.graphics_queue,
+                    self.graphics_command_pool,
+                )?;
+                self.device.cmd_push_constants(
+                    command_buffer.command_buffer,
+                    self.graphics_pipeline_layout,
+                    vk::ShaderStageFlags::VERTEX,
+                    0,
+                    &data,
+                );
+                command_buffer.submit(&[self.semaphore])?;
+
+                let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
+                let submit_info = vk::SubmitInfo::builder()
+                    .wait_semaphores(&[
+                        self.image_available_semaphores[self.current_frame],
+                        self.semaphore,
+                    ])
+                    .wait_dst_stage_mask(&[
+                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                        vk::PipelineStageFlags::VERTEX_SHADER,
+                    ])
+                    .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
+                    .signal_semaphores(&signal_semaphores)
+                    .build();
+
+                self.device
+                    .reset_fences(&[self.in_flight_fences[self.current_frame]])?;
+                self.device.queue_submit(
+                    self.graphics_queue,
+                    &[submit_info],
+                    self.in_flight_fences[self.current_frame],
+                )?;
+
+                let swapchains = [self.swapchain_handle];
+                let present_info = vk::PresentInfoKHR::builder()
+                    .wait_semaphores(&signal_semaphores)
+                    .swapchains(&swapchains)
+                    .image_indices(&[image_index])
+                    .build();
+
+                match self
+                    .swapchain
+                    .queue_present_khr(self.graphics_queue, &present_info)
+                {
+                    Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                        self.recreate_swapchain()?
+                    }
+                    Ok(false) => (),
+                    Err(e) => return Err(e.into()),
+                }
+                self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+                Ok(())
+            }
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                self.recreate_swapchain()?;
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn events_loop(&mut self) -> &mut winit::EventsLoop {
+        &mut self.events_loop
     }
 }
