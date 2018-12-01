@@ -1,20 +1,23 @@
-use crate::camera::Camera;
-use crate::geometry::{
-    boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
-    PrimitiveGeometry,
+use crate::{
+    camera::Camera,
+    game::GameState,
+    geometry::{
+        boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
+        PrimitiveGeometry,
+    },
+    gl::{shader::Program, VertexArrayObject},
+    renderer::Renderer,
+    types::*,
+    utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC},
 };
-use crate::gl::{shader::Program, VertexArrayObject};
-use crate::types::*;
-use crate::utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC};
 use glutin;
 use glutin::VirtualKeyCode;
 use specs::prelude::*;
 use specs::Entity;
 use specs_derive::Component;
-use std::collections::HashSet;
-use std::f32::consts::PI;
-use std::ops::DerefMut;
-use std::time::Duration;
+use std::{
+    cell::RefCell, collections::HashSet, f32::consts::PI, ops::DerefMut, rc::Rc, time::Duration,
+};
 
 #[derive(Debug)]
 pub struct TransformComponent {
@@ -145,6 +148,10 @@ pub struct SelectedComponent;
 
 pub struct RenderSystem;
 
+pub struct RenderSystem2 {
+    pub renderer: Rc<RefCell<Renderer>>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CameraAnimation {
     pub start_pos: Point3f,
@@ -197,6 +204,26 @@ impl CameraAnimation {
 
     pub fn end_time(&self) -> f32 {
         self.start_time + self.duration
+    }
+}
+
+impl<'a> System<'a> for RenderSystem2 {
+    type SystemData = WriteExpect<'a, GameState>;
+
+    fn run(&mut self, mut game_state: Self::SystemData) {
+        let mut renderer = self.renderer.borrow_mut();
+        let game_state = game_state.deref_mut();
+        let GameState {
+            ref resized,
+            ref mut camera,
+            ref pressed_keys,
+            ref mouse_delta,
+        } = game_state;
+        unsafe {
+            renderer
+                .draw_frame(&game_state, *resized)
+                .expect("draw_frame()");
+        }
     }
 }
 

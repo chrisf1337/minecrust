@@ -1,6 +1,6 @@
-use glutin::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode};
 use std::collections::HashSet;
 use std::hash::BuildHasher;
+use winit::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode};
 
 pub fn on_device_event<S: BuildHasher>(
     event: &DeviceEvent,

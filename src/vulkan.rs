@@ -1,12 +1,14 @@
 mod command_buffer;
 mod texture;
 
-use crate::game_state::GameState;
-use crate::na::{geometry::Perspective3, Vector2};
-use crate::renderer::{Renderer, RendererResult};
-use crate::types::*;
-use crate::utils::{clamp, NSEC_PER_SEC};
-use crate::vulkan::{command_buffer::CommandBuffer, texture::Texture};
+use crate::{
+    game::GameState,
+    na::{geometry::Perspective3, Vector2},
+    renderer::{Renderer, RendererResult},
+    types::*,
+    utils::{clamp, NSEC_PER_SEC},
+    vulkan::{command_buffer::CommandBuffer, texture::Texture},
+};
 use ash;
 use ash::{
     extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
@@ -2114,12 +2116,14 @@ impl Drop for VulkanBase {
 }
 
 impl Renderer for VulkanBase {
-    unsafe fn draw_frame(&mut self, _game_state: &GameState, resized: bool) -> RendererResult<()> {
+    unsafe fn draw_frame(&mut self, game_state: &GameState, resized: bool) -> RendererResult<()> {
         self.device.wait_for_fences(
             &[self.in_flight_fences[self.current_frame]],
             true,
             std::u64::MAX,
         )?;
+
+        self.uniform_push_constants.view_mat = game_state.camera.to_matrix();
 
         if resized {
             self.recreate_swapchain()?;
