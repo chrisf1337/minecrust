@@ -1,7 +1,7 @@
-use crate::{vulkan::VulkanError, game::GameState};
+use crate::{game::GameState, vulkan::VulkanError};
 use ash::vk;
 use failure_derive::Fail;
-use winit::EventsLoop;
+use winit::{EventsLoop, Window};
 
 #[derive(Fail, Debug)]
 pub enum RendererError {
@@ -26,4 +26,5 @@ pub type RendererResult<T> = Result<T, RendererError>;
 pub trait Renderer {
     unsafe fn draw_frame(&mut self, state: &GameState, resized: bool) -> RendererResult<()>;
     fn events_loop(&mut self) -> &mut EventsLoop;
+    fn window(&self) -> &Window;
 }

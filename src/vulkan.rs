@@ -33,7 +33,7 @@ use std::{
 #[cfg(target_os = "windows")]
 use winapi;
 use winit;
-use winit::dpi::LogicalSize;
+use winit::{dpi::LogicalSize, EventsLoop, Window};
 
 type Vector2f = Vector2<f32>;
 
@@ -2206,7 +2206,11 @@ impl Renderer for VulkanBase {
         }
     }
 
-    fn events_loop(&mut self) -> &mut winit::EventsLoop {
+    fn events_loop(&mut self) -> &mut EventsLoop {
         &mut self.events_loop
+    }
+
+    fn window(&self) -> &Window {
+        &self.window
     }
 }

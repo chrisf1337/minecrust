@@ -1,5 +1,5 @@
 use crate::{
-    camera::Camera,
+    camera::{Camera, CameraAnimation},
     game::GameState,
     geometry::{
         boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
@@ -152,61 +152,6 @@ pub struct RenderSystem2 {
     pub renderer: Rc<RefCell<Renderer>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct CameraAnimation {
-    pub start_pos: Point3f,
-    pub start_yaw_q: UnitQuaternionf,
-    pub start_pitch_q: UnitQuaternionf,
-    pub end_pos: Point3f,
-    pub end_yaw_q: UnitQuaternionf,
-    pub end_pitch_q: UnitQuaternionf,
-    pub start_time: f32,
-    pub duration: f32,
-}
-
-impl CameraAnimation {
-    pub fn new(
-        camera: &Camera,
-        end_position: Point3f,
-        end_direction: &Vector3f,
-        start_time: f32,
-        duration: f32,
-    ) -> CameraAnimation {
-        let (mut yaw_diff, pitch_diff) = vec3f::yaw_pitch_diff(&camera.direction(), &end_direction);
-        if yaw_diff > PI {
-            yaw_diff -= 2.0 * PI;
-        } else if yaw_diff < -PI {
-            yaw_diff += 2.0 * PI;
-        }
-        let rot_yaw_q = UnitQuaternionf::from_euler_angles(0.0, yaw_diff, 0.0);
-        let rot_pitch_q = UnitQuaternionf::from_euler_angles(pitch_diff, 0.0, 0.0);
-        CameraAnimation {
-            start_pos: camera.pos,
-            start_yaw_q: camera.yaw_q,
-            start_pitch_q: camera.pitch_q,
-            end_pos: end_position,
-            end_yaw_q: rot_yaw_q * camera.yaw_q,
-            end_pitch_q: rot_pitch_q * camera.pitch_q,
-            start_time,
-            duration,
-        }
-    }
-
-    /// Returns the point, yaw quaternion, and pitch quaternion of the animation at time `t`.
-    pub fn at(&self, time: f32) -> (Point3f, UnitQuaternionf, UnitQuaternionf) {
-        let t = (time - self.start_time) / self.duration;
-        (
-            pt3f::clerp(&self.start_pos, &self.end_pos, t),
-            quat4f::clerp(&self.start_yaw_q, &self.end_yaw_q, t),
-            quat4f::clerp(&self.start_pitch_q, &self.end_pitch_q, t),
-        )
-    }
-
-    pub fn end_time(&self) -> f32 {
-        self.start_time + self.duration
-    }
-}
-
 impl<'a> System<'a> for RenderSystem2 {
     type SystemData = WriteExpect<'a, GameState>;
 
@@ -218,7 +163,53 @@ impl<'a> System<'a> for RenderSystem2 {
             ref mut camera,
             ref pressed_keys,
             ref mouse_delta,
+            ref elapsed_time,
+            ref frame_time_delta,
+            ref mut camera_animation,
         } = game_state;
+
+        let d_yaw = mouse_delta.0 as f32 / 500.0;
+        let d_pitch = mouse_delta.1 as f32 / 500.0;
+        let frame_time_delta_f = frame_time_delta.as_nanos() as f32 / 1_000_000_000.0f32;
+        let elapsed_time_f = elapsed_time.as_nanos() as f32 / NSEC_PER_SEC as f32;
+        let mut camera_animation_finished = false;
+        if let Some(camera_animation) = camera_animation {
+            // Check if animation has expired
+            if elapsed_time_f >= camera_animation.end_time() {
+                camera.pos = camera_animation.end_pos;
+                camera.pitch_q = camera_animation.end_pitch_q;
+                camera.yaw_q = camera_animation.end_yaw_q;
+                camera_animation_finished = true;
+            } else {
+                let (pos, yaw_q, pitch_q) = camera_animation.at(elapsed_time_f);
+                camera.pos = pos;
+                camera.pitch_q = pitch_q;
+                camera.yaw_q = yaw_q;
+                camera_animation_finished = false;
+            }
+        } else {
+            camera.rotate((-d_yaw, d_pitch));
+        }
+        if camera_animation_finished {
+            *camera_animation = None;
+        }
+        let camera_speed = 3.0 * frame_time_delta_f;
+        for keycode in pressed_keys {
+            match keycode {
+                VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),
+                VirtualKeyCode::S => camera.pos -= camera_speed * camera.direction().unwrap(),
+                VirtualKeyCode::A => {
+                    let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
+                    camera.pos -= delta;
+                }
+                VirtualKeyCode::D => {
+                    let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
+                    camera.pos += delta;
+                }
+                _ => (),
+            }
+        }
+
         unsafe {
             renderer
                 .draw_frame(&game_state, *resized)

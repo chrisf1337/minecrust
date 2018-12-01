@@ -1,8 +1,13 @@
-use crate::na::Unit;
-use crate::types::*;
-use crate::utils::vec3f::yaw_pitch_diff;
-use std::f32;
-use std::f32::consts::FRAC_PI_2;
+use crate::{
+    na::Unit,
+    types::*,
+    utils::vec3f::yaw_pitch_diff,
+    utils::{pt3f, quat4f, vec3f},
+};
+use std::{
+    f32,
+    f32::consts::{FRAC_PI_2, PI},
+};
 
 #[derive(Debug, Clone)]
 pub struct Camera {
@@ -75,5 +80,60 @@ impl Camera {
 
     pub fn rotate_to_dir(&mut self, direction: &Vector3f) {
         self.rotate_to(yaw_pitch_diff(&Vector3f::z(), direction));
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CameraAnimation {
+    pub start_pos: Point3f,
+    pub start_yaw_q: UnitQuaternionf,
+    pub start_pitch_q: UnitQuaternionf,
+    pub end_pos: Point3f,
+    pub end_yaw_q: UnitQuaternionf,
+    pub end_pitch_q: UnitQuaternionf,
+    pub start_time: f32,
+    pub duration: f32,
+}
+
+impl CameraAnimation {
+    pub fn new(
+        camera: &Camera,
+        end_position: Point3f,
+        end_direction: &Vector3f,
+        start_time: f32,
+        duration: f32,
+    ) -> CameraAnimation {
+        let (mut yaw_diff, pitch_diff) = vec3f::yaw_pitch_diff(&camera.direction(), &end_direction);
+        if yaw_diff > PI {
+            yaw_diff -= 2.0 * PI;
+        } else if yaw_diff < -PI {
+            yaw_diff += 2.0 * PI;
+        }
+        let rot_yaw_q = UnitQuaternionf::from_euler_angles(0.0, yaw_diff, 0.0);
+        let rot_pitch_q = UnitQuaternionf::from_euler_angles(pitch_diff, 0.0, 0.0);
+        CameraAnimation {
+            start_pos: camera.pos,
+            start_yaw_q: camera.yaw_q,
+            start_pitch_q: camera.pitch_q,
+            end_pos: end_position,
+            end_yaw_q: rot_yaw_q * camera.yaw_q,
+            end_pitch_q: rot_pitch_q * camera.pitch_q,
+            start_time,
+            duration,
+        }
+    }
+
+    /// Returns the point, yaw quaternion, and pitch quaternion of the animation at time `t`.
+    pub fn at(&self, time: f32) -> (Point3f, UnitQuaternionf, UnitQuaternionf) {
+        let t = (time - self.start_time) / self.duration;
+        (
+            pt3f::clerp(&self.start_pos, &self.end_pos, t),
+            quat4f::clerp(&self.start_yaw_q, &self.end_yaw_q, t),
+            quat4f::clerp(&self.start_pitch_q, &self.end_pitch_q, t),
+        )
+    }
+
+    pub fn end_time(&self) -> f32 {
+        self.start_time + self.duration
     }
 }

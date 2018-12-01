@@ -1,5 +1,5 @@
 use crate::{
-    camera::Camera,
+    camera::{Camera, CameraAnimation},
     ecs::{
         BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent,
         RenderSystem2, TransformComponent,
@@ -9,10 +9,19 @@ use crate::{
     types::*,
     vulkan::VulkanBase,
 };
-use failure::Error;
+use failure::{err_msg, Error};
 use specs::prelude::*;
-use std::{cell::RefCell, collections::HashSet, ops::DerefMut, rc::Rc};
-use winit::{dpi::LogicalSize, DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    ops::DerefMut,
+    rc::Rc,
+    time::{Duration, SystemTime},
+};
+use winit::{
+    dpi::LogicalSize, DeviceEvent, Event, EventsLoop, KeyboardInput, VirtualKeyCode, Window,
+    WindowEvent,
+};
 
 pub struct GameState {
     pub resized: bool,
@@ -20,6 +29,9 @@ pub struct GameState {
     pub camera: Camera,
     pub pressed_keys: HashSet<VirtualKeyCode>,
     pub mouse_delta: (f64, f64),
+    pub elapsed_time: Duration,
+    pub frame_time_delta: Duration,
+    pub camera_animation: Option<CameraAnimation>,
 }
 
 pub struct Game<'a, 'b> {
@@ -29,14 +41,17 @@ pub struct Game<'a, 'b> {
 }
 
 impl<'a, 'b> Game<'a, 'b> {
-    pub fn new() -> Result<Game<'a, 'b>, Error> {
+    pub fn new(screen_width: u32, screen_height: u32) -> Result<Game<'a, 'b>, Error> {
         let state = GameState {
             resized: false,
             camera: Camera::new_with_target(Point3f::new(-3.0, 3.0, -3.0), Point3f::origin()),
             pressed_keys: HashSet::new(),
             mouse_delta: (0.0, 0.0),
+            elapsed_time: Duration::default(),
+            frame_time_delta: Duration::default(),
+            camera_animation: None,
         };
-        let renderer = Rc::new(RefCell::new(VulkanBase::new(1024, 768)?));
+        let renderer = Rc::new(RefCell::new(VulkanBase::new(screen_width, screen_height)?));
 
         let mut world = World::new();
         world.register::<TransformComponent>();
@@ -101,50 +116,64 @@ impl<'a, 'b> Game<'a, 'b> {
         })
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&mut self) -> Result<(), Error> {
         let mut running = true;
         let mut just_started = true;
         let mut focused = true;
+        let mut last_frame_time = SystemTime::now();
+        let start_time = SystemTime::now();
+
         while running {
             let mut resized = false;
+            let current_frame_time = SystemTime::now();
+            let frame_time_delta = current_frame_time.duration_since(last_frame_time)?;
+            last_frame_time = current_frame_time;
             let mut mouse_delta = (0.0, 0.0);
             {
                 let mut state = self.world.write_resource::<GameState>();
                 let state = state.deref_mut();
                 let pressed_keys = &mut state.pressed_keys;
-                self.renderer
-                    .borrow_mut()
-                    .events_loop()
-                    .poll_events(|event| match event {
-                        Event::DeviceEvent { event, .. } => {
-                            on_device_event(&event, pressed_keys, &mut mouse_delta);
-                            if pressed_keys.contains(&VirtualKeyCode::Escape) && focused {
-                                running = false;
+                let mut renderer = self.renderer.borrow_mut();
+
+                if focused {
+                    let window = renderer.window();
+                    window.grab_cursor(true).map_err(err_msg)?;
+                    window.hide_cursor(true);
+                }
+
+                renderer.events_loop().poll_events(|event| match event {
+                    Event::DeviceEvent { event, .. } => {
+                        on_device_event(&event, pressed_keys, &mut mouse_delta);
+                        if pressed_keys.contains(&VirtualKeyCode::Escape) && focused {
+                            running = false;
+                        }
+                    }
+                    Event::WindowEvent { event, .. } => match event {
+                        WindowEvent::CloseRequested => running = false,
+                        WindowEvent::Focused(f) => focused = f,
+                        WindowEvent::Resized(LogicalSize { width, height }) => {
+                            // FIXME: handle minimization?
+                            // Right now we don't allow the window to be resized
+                            if just_started {
+                                // When the window is first created, a resized event is sent
+                                just_started = false;
+                            } else {
+                                println!("resized to ({}, {})", width, height);
+                                resized = true;
                             }
                         }
-                        Event::WindowEvent { event, .. } => match event {
-                            WindowEvent::CloseRequested => running = false,
-                            WindowEvent::Focused(f) => focused = f,
-                            WindowEvent::Resized(LogicalSize { width, height }) => {
-                                // FIXME: handle minimization?
-                                // Right now we don't allow the window to be resized
-                                if just_started {
-                                    // When the window is first created, a resized event is sent
-                                    just_started = false;
-                                } else {
-                                    println!("resized to ({}, {})", width, height);
-                                    resized = true;
-                                }
-                            }
-                            _ => (),
-                        },
                         _ => (),
-                    });
+                    },
+                    _ => (),
+                });
                 state.mouse_delta = mouse_delta;
+                state.elapsed_time = start_time.elapsed()?;
+                state.frame_time_delta = frame_time_delta;
                 state.resized = resized;
             }
             self.dispatcher.dispatch(&self.world.res);
             self.world.maintain();
         }
+        Ok(())
     }
 }

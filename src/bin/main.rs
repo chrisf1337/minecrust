@@ -68,8 +68,8 @@ impl From<std::time::SystemTimeError> for MainError {
     }
 }
 fn main() -> Result<(), Error> {
-    let mut game = Game::new()?;
-    game.start();
+    let mut game = Game::new(1024, 768)?;
+    game.start()?;
     Ok(())
     // let mut events_loop = glutin::EventsLoop::new();
     // let window = glutin::WindowBuilder::new()
