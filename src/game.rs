@@ -21,10 +21,7 @@ use std::{
     rc::Rc,
     time::{Duration, SystemTime},
 };
-use winit::{
-    dpi::LogicalSize, DeviceEvent, Event, EventsLoop, KeyboardInput, VirtualKeyCode, Window,
-    WindowEvent,
-};
+use winit::{dpi::LogicalSize, Event, VirtualKeyCode, WindowEvent};
 
 pub struct GameState {
     pub resized: bool,
