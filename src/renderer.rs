@@ -1,4 +1,4 @@
-use crate::{game::GameState, vulkan::VulkanError};
+use crate::{game::GameState, types::*, vulkan::VulkanError};
 use ash::vk;
 use failure_derive::Fail;
 use winit::{EventsLoop, Window};
@@ -24,7 +24,16 @@ impl From<vk::Result> for RendererError {
 pub type RendererResult<T> = Result<T, RendererError>;
 
 pub trait Renderer {
-    unsafe fn draw_frame(&mut self, state: &GameState, resized: bool) -> RendererResult<()>;
+    unsafe fn draw_frame(
+        &mut self,
+        state: &GameState,
+        render_data: &RenderData,
+        resized: bool,
+    ) -> RendererResult<()>;
     fn events_loop(&mut self) -> &mut EventsLoop;
     fn window(&self) -> &Window;
+}
+
+pub struct RenderData {
+    pub vertices: Vec<Vertex3f>,
 }

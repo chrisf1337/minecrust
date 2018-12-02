@@ -1,13 +1,14 @@
 mod command_buffer;
 mod texture;
+mod vertex_buffer;
 
 use crate::{
     game::GameState,
     na::{geometry::Perspective3, Vector2},
-    renderer::{Renderer, RendererResult},
+    renderer::{RenderData, Renderer, RendererResult},
     types::*,
     utils::{clamp, NSEC_PER_SEC},
-    vulkan::{command_buffer::CommandBuffer, texture::Texture},
+    vulkan::{command_buffer::CommandBuffer, texture::Texture, vertex_buffer::VertexBuffer},
 };
 use ash;
 use ash::{
@@ -35,9 +36,8 @@ use winapi;
 use winit;
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
-type Vector2f = Vector2<f32>;
-
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
+const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 2048;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -207,55 +207,55 @@ unsafe fn create_surface<E: EntryV1_0, I: InstanceV1_1>(
     win32_surface.create_win32_surface_khr(&win32_create_info, None)
 }
 
-#[derive(Clone, Copy)]
-struct Vertex {
-    pub pos: Vector3f,
-    pub color: Vector3f,
-    pub tex_coord: Vector2f,
-}
+// #[derive(Clone, Copy)]
+// struct Vertex {
+//     pub pos: Vector3f,
+//     pub color: Vector3f,
+//     pub tex_coord: Vector2f,
+// }
 
-impl Vertex {
-    fn convert_vec_f32(vertices: &[Vertex]) -> Vec<f32> {
-        let mut v = vec![];
-        for vtx in vertices {
-            v.extend(vtx.pos.as_slice());
-            v.extend(vtx.color.as_slice());
-            v.extend(vtx.tex_coord.as_slice());
-        }
-        v
-    }
+// impl Vertex {
+//     fn convert_vec_f32(vertices: &[Vertex]) -> Vec<f32> {
+//         let mut v = vec![];
+//         for vtx in vertices {
+//             v.extend(vtx.pos.as_slice());
+//             v.extend(vtx.color.as_slice());
+//             v.extend(vtx.tex_coord.as_slice());
+//         }
+//         v
+//     }
 
-    fn binding_description() -> vk::VertexInputBindingDescription {
-        vk::VertexInputBindingDescription::builder()
-            .binding(0)
-            .stride(std::mem::size_of::<Self>() as u32)
-            .input_rate(vk::VertexInputRate::VERTEX)
-            .build()
-    }
+//     fn binding_description() -> vk::VertexInputBindingDescription {
+//         vk::VertexInputBindingDescription::builder()
+//             .binding(0)
+//             .stride(std::mem::size_of::<Self>() as u32)
+//             .input_rate(vk::VertexInputRate::VERTEX)
+//             .build()
+//     }
 
-    fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
-        [
-            vk::VertexInputAttributeDescription::builder()
-                .binding(0)
-                .location(0)
-                .format(vk::Format::R32G32B32_SFLOAT)
-                .offset(offset_of!(Vertex, pos) as u32)
-                .build(),
-            vk::VertexInputAttributeDescription::builder()
-                .binding(0)
-                .location(1)
-                .format(vk::Format::R32G32B32_SFLOAT)
-                .offset(offset_of!(Vertex, color) as u32)
-                .build(),
-            vk::VertexInputAttributeDescription::builder()
-                .binding(0)
-                .location(2)
-                .format(vk::Format::R32G32_SFLOAT)
-                .offset(offset_of!(Vertex, tex_coord) as u32)
-                .build(),
-        ]
-    }
-}
+//     fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
+//         [
+//             vk::VertexInputAttributeDescription::builder()
+//                 .binding(0)
+//                 .location(0)
+//                 .format(vk::Format::R32G32B32_SFLOAT)
+//                 .offset(offset_of!(Vertex, pos) as u32)
+//                 .build(),
+//             vk::VertexInputAttributeDescription::builder()
+//                 .binding(0)
+//                 .location(1)
+//                 .format(vk::Format::R32G32B32_SFLOAT)
+//                 .offset(offset_of!(Vertex, color) as u32)
+//                 .build(),
+//             vk::VertexInputAttributeDescription::builder()
+//                 .binding(0)
+//                 .location(2)
+//                 .format(vk::Format::R32G32_SFLOAT)
+//                 .offset(offset_of!(Vertex, tex_coord) as u32)
+//                 .build(),
+//         ]
+//     }
+// }
 
 #[derive(Fail, Debug)]
 pub enum VulkanError {
@@ -338,13 +338,10 @@ pub struct VulkanBase {
 
     current_frame: usize,
 
-    vertices: Vec<Vertex>,
-    vertex_buffer: vk::Buffer,
-    vertex_buffer_memory: vk::DeviceMemory,
-    indices: Vec<u16>,
-    index_buffer: vk::Buffer,
-    index_buffer_memory: vk::DeviceMemory,
-
+    vertex_buffers: Vec<VertexBuffer>,
+    // indices: Vec<u16>,
+    // index_buffer: vk::Buffer,
+    // index_buffer_memory: vk::DeviceMemory,
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
 
@@ -539,12 +536,11 @@ impl VulkanBase {
                 image_available_semaphores: Default::default(),
                 render_finished_semaphores: Default::default(),
                 in_flight_fences: Default::default(),
-                vertices: Default::default(),
-                vertex_buffer: Default::default(),
-                vertex_buffer_memory: Default::default(),
-                indices: Default::default(),
-                index_buffer: Default::default(),
-                index_buffer_memory: Default::default(),
+
+                vertex_buffers: Default::default(),
+                // indices: Default::default(),
+                // index_buffer: Default::default(),
+                // index_buffer_memory: Default::default(),
                 uniform_buffers: Default::default(),
                 uniform_buffers_memory: Default::default(),
 
@@ -575,63 +571,64 @@ impl VulkanBase {
             base.msaa_samples = base.get_max_usable_sample_count();
 
             base.create_swapchain(screen_width, screen_height)?;
+            base.graphics_command_buffers = vec![Default::default(); base.swapchain_images.len()];
             base.create_render_pass()?;
             base.create_descriptor_set_layout()?;
             base.create_graphics_pipeline()?;
 
             base.create_command_pools()?;
 
-            base.vertices = vec![
-                // top left
-                Vertex {
-                    pos: Vector3f::new(-0.5, 0.0, -0.5),
-                    color: Vector3f::new(1.0, 0.0, 0.0),
-                    tex_coord: Vector2f::new(0.0, 0.0),
-                },
-                // top right
-                Vertex {
-                    pos: Vector3f::new(0.5, 0.0, -0.5),
-                    color: Vector3f::new(0.0, 1.0, 0.0),
-                    tex_coord: Vector2f::new(1.0, 0.0),
-                },
-                // bottom right
-                Vertex {
-                    pos: Vector3f::new(0.5, 0.0, 0.5),
-                    color: Vector3f::new(0.0, 0.0, 1.0),
-                    tex_coord: Vector2f::new(1.0, 1.0),
-                },
-                // bottom left
-                Vertex {
-                    pos: Vector3f::new(-0.5, 0.0, 0.5),
-                    color: Vector3f::new(1.0, 1.0, 1.0),
-                    tex_coord: Vector2f::new(0.0, 1.0),
-                },
-                // 2nd image
-                Vertex {
-                    pos: Vector3f::new(-0.5, -0.5, -0.5),
-                    color: Vector3f::new(1.0, 0.0, 0.0),
-                    tex_coord: Vector2f::new(0.0, 0.0),
-                },
-                // top right
-                Vertex {
-                    pos: Vector3f::new(0.5, -0.5, -0.5),
-                    color: Vector3f::new(0.0, 1.0, 0.0),
-                    tex_coord: Vector2f::new(1.0, 0.0),
-                },
-                // bottom right
-                Vertex {
-                    pos: Vector3f::new(0.5, -0.5, 0.5),
-                    color: Vector3f::new(0.0, 0.0, 1.0),
-                    tex_coord: Vector2f::new(1.0, 1.0),
-                },
-                // bottom left
-                Vertex {
-                    pos: Vector3f::new(-0.5, -0.5, 0.5),
-                    color: Vector3f::new(1.0, 1.0, 1.0),
-                    tex_coord: Vector2f::new(0.0, 1.0),
-                },
-            ];
-            base.indices = vec![0, 3, 2, 0, 2, 1, 4, 7, 6, 4, 6, 5];
+            // base.vertices = vec![
+            //     // top left
+            //     Vertex {
+            //         pos: Vector3f::new(-0.5, 0.0, -0.5),
+            //         color: Vector3f::new(1.0, 0.0, 0.0),
+            //         tex_coord: Vector2f::new(0.0, 0.0),
+            //     },
+            //     // top right
+            //     Vertex {
+            //         pos: Vector3f::new(0.5, 0.0, -0.5),
+            //         color: Vector3f::new(0.0, 1.0, 0.0),
+            //         tex_coord: Vector2f::new(1.0, 0.0),
+            //     },
+            //     // bottom right
+            //     Vertex {
+            //         pos: Vector3f::new(0.5, 0.0, 0.5),
+            //         color: Vector3f::new(0.0, 0.0, 1.0),
+            //         tex_coord: Vector2f::new(1.0, 1.0),
+            //     },
+            //     // bottom left
+            //     Vertex {
+            //         pos: Vector3f::new(-0.5, 0.0, 0.5),
+            //         color: Vector3f::new(1.0, 1.0, 1.0),
+            //         tex_coord: Vector2f::new(0.0, 1.0),
+            //     },
+            //     // 2nd image
+            //     Vertex {
+            //         pos: Vector3f::new(-0.5, -0.5, -0.5),
+            //         color: Vector3f::new(1.0, 0.0, 0.0),
+            //         tex_coord: Vector2f::new(0.0, 0.0),
+            //     },
+            //     // top right
+            //     Vertex {
+            //         pos: Vector3f::new(0.5, -0.5, -0.5),
+            //         color: Vector3f::new(0.0, 1.0, 0.0),
+            //         tex_coord: Vector2f::new(1.0, 0.0),
+            //     },
+            //     // bottom right
+            //     Vertex {
+            //         pos: Vector3f::new(0.5, -0.5, 0.5),
+            //         color: Vector3f::new(0.0, 0.0, 1.0),
+            //         tex_coord: Vector2f::new(1.0, 1.0),
+            //     },
+            //     // bottom left
+            //     Vertex {
+            //         pos: Vector3f::new(-0.5, -0.5, 0.5),
+            //         color: Vector3f::new(1.0, 1.0, 1.0),
+            //         tex_coord: Vector2f::new(0.0, 1.0),
+            //     },
+            // ];
+            // base.indices = vec![0, 3, 2, 0, 2, 1, 4, 7, 6, 4, 6, 5];
 
             base.create_color_resources()?;
             base.create_depth_resources()?;
@@ -645,12 +642,16 @@ impl VulkanBase {
                 .insert("cobblestone".to_string(), cobblestone_texture);
 
             base.create_texture_sampler()?;
-            base.create_vertex_buffer()?;
-            base.create_index_buffer()?;
+            // base.create_vertex_buffer()?;
+            // base.create_index_buffer()?;
+            for _ in &base.swapchain_images {
+                base.vertex_buffers
+                    .push(VertexBuffer::new(&base, VERTEX_BUFFER_CAPCITY)?);
+            }
+
             base.create_uniform_buffer()?;
             base.create_descriptor_pool()?;
             base.create_descriptor_sets()?;
-            base.create_command_buffers()?;
             base.create_sync_objects()?;
             Ok(base)
         }
@@ -889,8 +890,8 @@ impl VulkanBase {
             .build();
         let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
 
-        let binding_description = Vertex::binding_description();
-        let attribute_descriptions = Vertex::attribute_descriptions();
+        let binding_description = Vertex3f::binding_description();
+        let attribute_descriptions = Vertex3f::attribute_descriptions();
 
         let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
             .vertex_binding_descriptions(&[binding_description])
@@ -906,7 +907,7 @@ impl VulkanBase {
             .width(self.swapchain_extent.width as f32)
             .height(self.swapchain_extent.height as f32)
             .min_depth(0.0)
-            .max_depth(0.0)
+            .max_depth(1.0)
             .build();
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -1023,77 +1024,86 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn create_command_buffers(&mut self) -> VkResult<()> {
+    unsafe fn new_command_buffer(
+        &mut self,
+        index: usize,
+        n_vertices: u32,
+    ) -> VkResult<vk::CommandBuffer> {
         let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.graphics_command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(self.swapchain_framebuffers.len() as u32)
+            .command_buffer_count(1)
             .build();
-        self.graphics_command_buffers = self
+        let command_buffer = self
             .device
-            .allocate_command_buffers(&command_buffer_alloc_info)?;
-        for (index, &command_buffer) in self.graphics_command_buffers.iter().enumerate() {
-            let begin_info = vk::CommandBufferBeginInfo::builder()
-                .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
-                .build();
-            self.device
-                .begin_command_buffer(command_buffer, &begin_info)?;
-            let swapchain_framebuffer = self.swapchain_framebuffers[index];
-            let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-                .render_pass(self.render_pass)
-                .framebuffer(swapchain_framebuffer)
-                .render_area(vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent: self.swapchain_extent,
-                })
-                .clear_values(&[
-                    vk::ClearValue {
-                        color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 0.0],
-                        },
-                    },
-                    vk::ClearValue {
-                        depth_stencil: vk::ClearDepthStencilValue {
-                            depth: 1.0,
-                            stencil: 0,
-                        },
-                    },
-                ])
-                .build();
-            self.device.cmd_begin_render_pass(
-                command_buffer,
-                &render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
-            self.device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.graphics_pipeline,
-            );
+            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
 
-            self.device
-                .cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer], &[0]);
-            self.device.cmd_bind_index_buffer(
-                command_buffer,
-                self.index_buffer,
-                0,
-                vk::IndexType::UINT16,
-            );
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
+            .build();
+        self.device
+            .begin_command_buffer(command_buffer, &begin_info)?;
+        let swapchain_framebuffer = self.swapchain_framebuffers[index];
+        let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+            .render_pass(self.render_pass)
+            .framebuffer(swapchain_framebuffer)
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: self.swapchain_extent,
+            })
+            .clear_values(&[
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.0, 0.0, 0.0, 0.0],
+                    },
+                },
+                vk::ClearValue {
+                    depth_stencil: vk::ClearDepthStencilValue {
+                        depth: 1.0,
+                        stencil: 0,
+                    },
+                },
+            ])
+            .build();
+        self.device.cmd_begin_render_pass(
+            command_buffer,
+            &render_pass_begin_info,
+            vk::SubpassContents::INLINE,
+        );
+        self.device.cmd_bind_pipeline(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.graphics_pipeline,
+        );
 
-            self.device.cmd_bind_descriptor_sets(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.graphics_pipeline_layout,
-                0,
-                &self.descriptor_sets,
-                &[],
-            );
-            self.device
-                .cmd_draw_indexed(command_buffer, self.indices.len() as u32, 1, 0, 0, 0);
-            self.device.cmd_end_render_pass(command_buffer);
-            self.device.end_command_buffer(command_buffer)?;
-        }
-        Ok(())
+        self.device.cmd_bind_vertex_buffers(
+            command_buffer,
+            0,
+            &[self.vertex_buffers[index].buf],
+            &[0],
+        );
+        // self.device.cmd_bind_index_buffer(
+        //     command_buffer,
+        //     self.index_buffer,
+        //     0,
+        //     vk::IndexType::UINT16,
+        // );
+
+        self.device.cmd_bind_descriptor_sets(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.graphics_pipeline_layout,
+            0,
+            &self.descriptor_sets,
+            &[],
+        );
+        // self.device
+        //     .cmd_draw_indexed(command_buffer, self.indices.len() as u32, 1, 0, 0, 0);
+        self.device.cmd_draw(command_buffer, n_vertices, 1, 0, 0);
+        self.device.cmd_end_render_pass(command_buffer);
+        self.device.end_command_buffer(command_buffer)?;
+
+        Ok(command_buffer)
     }
 
     unsafe fn recreate_swapchain(&mut self) -> VulkanResult<()> {
@@ -1107,7 +1117,6 @@ impl VulkanBase {
         self.create_color_resources()?;
         self.create_depth_resources()?;
         self.create_framebuffers()?;
-        self.create_command_buffers()?;
 
         Ok(())
     }
@@ -1592,84 +1601,117 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn create_vertex_buffer(&mut self) -> VulkanResult<()> {
+    unsafe fn copy_data_to_vertex_buffer(
+        &mut self,
+        vertices: &[Vertex3f],
+        vertex_buffer: VertexBuffer,
+    ) -> VulkanResult<()> {
         let buffer_size: vk::DeviceSize =
-            (self.vertices.len() * std::mem::size_of::<Vertex>()) as vk::DeviceSize;
-
-        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
-            buffer_size as vk::DeviceSize,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-
-        let data = self.device.map_memory(
-            staging_buffer_memory,
-            0,
-            buffer_size as vk::DeviceSize,
-            vk::MemoryMapFlags::empty(),
-        )? as *mut f32;
-        let vertices_f32 = Vertex::convert_vec_f32(&self.vertices);
-        std::ptr::copy_nonoverlapping(vertices_f32.as_ptr(), data, vertices_f32.len());
-        self.device.unmap_memory(staging_buffer_memory);
-
-        let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
-            buffer_size,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-        self.copy_buffer(
-            self.transfer_queue,
-            self.transfer_command_pool,
-            staging_buffer,
-            vertex_buffer,
-            buffer_size,
-        )?;
-        self.device.destroy_buffer(staging_buffer, None);
-        self.device.free_memory(staging_buffer_memory, None);
-
-        self.vertex_buffer = vertex_buffer;
-        self.vertex_buffer_memory = vertex_buffer_memory;
-
-        Ok(())
-    }
-
-    unsafe fn create_index_buffer(&mut self) -> VulkanResult<()> {
-        let buffer_size = (std::mem::size_of::<u16>() * self.indices.len()) as vk::DeviceSize;
+            (vertices.len() * std::mem::size_of::<Vertex3f>()) as vk::DeviceSize;
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             buffer_size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
-
         let data = self.device.map_memory(
             staging_buffer_memory,
             0,
             buffer_size as vk::DeviceSize,
             vk::MemoryMapFlags::empty(),
-        )? as *mut u16;
-        std::ptr::copy_nonoverlapping(self.indices.as_ptr(), data, self.indices.len());
+        )? as *mut Vertex3f;
+        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data, vertices.len());
         self.device.unmap_memory(staging_buffer_memory);
 
-        let (index_buffer, index_buffer_memory) = self.create_buffer(
-            buffer_size,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
         self.copy_buffer(
             self.transfer_queue,
             self.transfer_command_pool,
             staging_buffer,
-            index_buffer,
+            vertex_buffer.buf,
             buffer_size,
         )?;
         self.device.destroy_buffer(staging_buffer, None);
         self.device.free_memory(staging_buffer_memory, None);
-
-        self.index_buffer = index_buffer;
-        self.index_buffer_memory = index_buffer_memory;
-
         Ok(())
     }
+
+    // unsafe fn create_vertex_buffer(&mut self) -> VulkanResult<()> {
+    //     let buffer_size: vk::DeviceSize =
+    //         (self.vertices.len() * std::mem::size_of::<Vertex>()) as vk::DeviceSize;
+
+    //     let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+    //         buffer_size as vk::DeviceSize,
+    //         vk::BufferUsageFlags::TRANSFER_SRC,
+    //         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    //     )?;
+
+    //     let data = self.device.map_memory(
+    //         staging_buffer_memory,
+    //         0,
+    //         buffer_size as vk::DeviceSize,
+    //         vk::MemoryMapFlags::empty(),
+    //     )? as *mut f32;
+    //     let vertices_f32 = Vertex::convert_vec_f32(&self.vertices);
+    //     std::ptr::copy_nonoverlapping(vertices_f32.as_ptr(), data, vertices_f32.len());
+    //     self.device.unmap_memory(staging_buffer_memory);
+
+    //     let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
+    //         buffer_size,
+    //         vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+    //         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    //     )?;
+    //     self.copy_buffer(
+    //         self.transfer_queue,
+    //         self.transfer_command_pool,
+    //         staging_buffer,
+    //         vertex_buffer,
+    //         buffer_size,
+    //     )?;
+    //     self.device.destroy_buffer(staging_buffer, None);
+    //     self.device.free_memory(staging_buffer_memory, None);
+
+    //     self.vertex_buffer = vertex_buffer;
+    //     self.vertex_buffer_memory = vertex_buffer_memory;
+
+    //     Ok(())
+    // }
+
+    // unsafe fn create_index_buffer(&mut self) -> VulkanResult<()> {
+    //     let buffer_size = (std::mem::size_of::<u16>() * self.indices.len()) as vk::DeviceSize;
+    //     let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+    //         buffer_size,
+    //         vk::BufferUsageFlags::TRANSFER_SRC,
+    //         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    //     )?;
+
+    //     let data = self.device.map_memory(
+    //         staging_buffer_memory,
+    //         0,
+    //         buffer_size as vk::DeviceSize,
+    //         vk::MemoryMapFlags::empty(),
+    //     )? as *mut u16;
+    //     std::ptr::copy_nonoverlapping(self.indices.as_ptr(), data, self.indices.len());
+    //     self.device.unmap_memory(staging_buffer_memory);
+
+    //     let (index_buffer, index_buffer_memory) = self.create_buffer(
+    //         buffer_size,
+    //         vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+    //         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    //     )?;
+    //     self.copy_buffer(
+    //         self.transfer_queue,
+    //         self.transfer_command_pool,
+    //         staging_buffer,
+    //         index_buffer,
+    //         buffer_size,
+    //     )?;
+    //     self.device.destroy_buffer(staging_buffer, None);
+    //     self.device.free_memory(staging_buffer_memory, None);
+
+    //     self.index_buffer = index_buffer;
+    //     self.index_buffer_memory = index_buffer_memory;
+
+    //     Ok(())
+    // }
 
     unsafe fn create_uniform_buffer(&mut self) -> VkResult<()> {
         let buffer_size = std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize;
@@ -2083,10 +2125,10 @@ impl Drop for VulkanBase {
                 self.device.free_memory(uniform_buffer_memory, None);
             }
 
-            self.device.destroy_buffer(self.vertex_buffer, None);
-            self.device.free_memory(self.vertex_buffer_memory, None);
-            self.device.destroy_buffer(self.index_buffer, None);
-            self.device.free_memory(self.index_buffer_memory, None);
+            for vertex_buffer in &self.vertex_buffers {
+                self.device.free_memory(vertex_buffer.memory, None);
+                self.device.destroy_buffer(vertex_buffer.buf, None);
+            }
 
             self.device.destroy_semaphore(self.semaphore, None);
             for i in 0..MAX_FRAMES_IN_FLIGHT {
@@ -2116,7 +2158,12 @@ impl Drop for VulkanBase {
 }
 
 impl Renderer for VulkanBase {
-    unsafe fn draw_frame(&mut self, game_state: &GameState, resized: bool) -> RendererResult<()> {
+    unsafe fn draw_frame(
+        &mut self,
+        game_state: &GameState,
+        render_data: &RenderData,
+        resized: bool,
+    ) -> RendererResult<()> {
         self.device.wait_for_fences(
             &[self.in_flight_fences[self.current_frame]],
             true,
@@ -2140,6 +2187,11 @@ impl Renderer for VulkanBase {
             Ok((image_index, _)) => {
                 self.update_uniform_buffer(image_index as usize)?;
 
+                self.copy_data_to_vertex_buffer(
+                    &render_data.vertices,
+                    self.vertex_buffers[image_index as usize],
+                )?;
+
                 let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
                 LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
                 let command_buffer = CommandBuffer::new(
@@ -2155,6 +2207,13 @@ impl Renderer for VulkanBase {
                     &data,
                 );
                 command_buffer.submit(&[self.semaphore])?;
+
+                self.device.free_command_buffers(
+                    self.graphics_command_pool,
+                    &[self.graphics_command_buffers[image_index as usize]],
+                );
+                self.graphics_command_buffers[image_index as usize] = self
+                    .new_command_buffer(image_index as usize, render_data.vertices.len() as u32)?;
 
                 let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
                 let submit_info = vk::SubmitInfo::builder()

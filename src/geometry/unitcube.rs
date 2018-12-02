@@ -1,15 +1,12 @@
-use alga::general::SubsetOf;
 use crate::geometry::{square::Square, BoundingBox, PrimitiveGeometry};
 use crate::na::{Isometry, Rotation3, Translation3};
 use crate::types::*;
+use alga::general::SubsetOf;
 use std::f32::consts::{FRAC_PI_2, PI};
 
 pub struct UnitCube {
     pub side_len: f32,
     transforms: Vec<Transform3f>,
-    last_transform: Vecf,
-    last_vtx_data: Vec<f32>,
-    last_vertices: Vec<Point3f>,
 }
 
 impl UnitCube {
@@ -46,43 +43,26 @@ impl UnitCube {
         UnitCube {
             side_len,
             transforms,
-            last_transform: Vecf(vec![]),
-            last_vtx_data: vec![],
-            last_vertices: vec![],
         }
     }
 }
 
 impl PrimitiveGeometry for UnitCube {
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<f32> {
-        if self
-            .last_transform
-            .eq(&Vecf::from_slice(transform.to_homogeneous().as_slice()))
-        {
-            return self.last_vtx_data.clone();
-        }
+    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f> {
         let mut sq = Square::new(self.side_len);
         let mut vertices = vec![];
         for tr in &self.transforms {
             vertices.extend_from_slice(&sq.vtx_data(&(transform * tr)));
         }
-        self.last_vtx_data = vertices.clone();
         vertices
     }
 
     fn vertices(&mut self, transform: &Transform3f) -> Vec<Point3f> {
-        if self
-            .last_transform
-            .eq(&Vecf::from_slice(transform.to_homogeneous().as_slice()))
-        {
-            return self.last_vertices.clone();
-        }
         let mut sq = Square::new(self.side_len);
         let mut vertices = vec![];
         for tr in &self.transforms {
             vertices.extend(sq.vertices(&(transform * tr)));
         }
-        self.last_vertices = vertices.clone();
         vertices
     }
 

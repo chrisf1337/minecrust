@@ -1,0 +1,25 @@
+{
+    "rdocCaptureSettings": 1,
+    "settings": {
+        "autoStart": false,
+        "commandLine": "",
+        "environment": [
+        ],
+        "executable": "D:\\projects\\minecrust\\target\\debug\\main.exe",
+        "inject": false,
+        "options": {
+            "allowFullscreen": true,
+            "allowVSync": true,
+            "apiValidation": true,
+            "captureAllCmdLists": true,
+            "captureCallstacks": true,
+            "captureCallstacksOnlyDraws": false,
+            "debugOutputMute": true,
+            "delayForDebugger": 0,
+            "hookIntoChildren": false,
+            "refAllResources": true,
+            "verifyBufferAccess": false
+        },
+        "workingDir": "D:/projects/minecrust"
+    }
+}

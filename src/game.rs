@@ -1,14 +1,17 @@
 use crate::{
     camera::{Camera, CameraAnimation},
     ecs::{
-        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent,
-        RenderSystem2, TransformComponent,
+        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
+        TransformComponent,
     },
     event_handlers::on_device_event,
+    geometry::{square::Square, unitcube::UnitCube},
+    na::Translation3,
     renderer::Renderer,
     types::*,
     vulkan::VulkanBase,
 };
+use alga::general::SubsetOf;
 use failure::{err_msg, Error};
 use specs::prelude::*;
 use std::{
@@ -44,7 +47,7 @@ impl<'a, 'b> Game<'a, 'b> {
     pub fn new(screen_width: u32, screen_height: u32) -> Result<Game<'a, 'b>, Error> {
         let state = GameState {
             resized: false,
-            camera: Camera::new_with_target(Point3f::new(-3.0, 3.0, -3.0), Point3f::origin()),
+            camera: Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin()),
             pressed_keys: HashSet::new(),
             mouse_delta: (0.0, 0.0),
             elapsed_time: Duration::default(),
@@ -72,42 +75,42 @@ impl<'a, 'b> Game<'a, 'b> {
                     "BoundingBoxComponentSystem",
                     &[],
                 )
-                .with_thread_local(RenderSystem2 {
+                .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),
                 })
                 .build()
         };
 
-        // // square
-        // world
-        //     .create_entity()
-        //     .with(TransformComponent::new(
-        //         Translation3::from_vector(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
-        //     ))
-        //     .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
-        //     .build();
-        // // cube 1
-        // world
-        //     .create_entity()
-        //     .with(TransformComponent::new(Transform3f::identity()))
-        //     .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
-        //     .build();
-        // // cube 2
-        // let cube3 = world
-        //     .create_entity()
-        //     .with(TransformComponent::new(
-        //         Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
-        //     ))
-        //     .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
-        //     .build();
-        // // cube 3
-        // world
-        //     .create_entity()
-        //     .with(TransformComponent::new(
-        //         Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
-        //     ))
-        //     .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
-        //     .build();
+        // square
+        world
+            .create_entity()
+            .with(TransformComponent::new(
+                Translation3::from_vector(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
+            ))
+            .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
+            .build();
+        // cube 1
+        world
+            .create_entity()
+            .with(TransformComponent::new(Transform3f::identity()))
+            .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
+            .build();
+        // cube 2
+        let cube3 = world
+            .create_entity()
+            .with(TransformComponent::new(
+                Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
+            ))
+            .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
+            .build();
+        // cube 3
+        world
+            .create_entity()
+            .with(TransformComponent::new(
+                Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
+            ))
+            .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
+            .build();
 
         Ok(Game {
             world,

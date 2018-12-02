@@ -1,5 +1,5 @@
 use crate::geometry::{rectangle::Rectangle, BoundingBox, PrimitiveGeometry};
-use crate::types::{Point3f, Transform3f};
+use crate::types::*;
 
 pub struct Square {
     rect: Rectangle,
@@ -14,7 +14,7 @@ impl Square {
 }
 
 impl PrimitiveGeometry for Square {
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<f32> {
+    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f> {
         self.rect.vtx_data(transform)
     }
 
@@ -30,11 +30,11 @@ impl PrimitiveGeometry for Square {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alga::general::SubsetOf;
     use crate::na::geometry::Isometry;
     use crate::na::{Rotation3, Translation3};
     use crate::types::{Point3f, Vector3f};
     use crate::utils;
+    use alga::general::SubsetOf;
 
     #[test]
     fn test_transform1() {

@@ -8,7 +8,10 @@ use crate::geometry::boundingbox::BoundingBox;
 use crate::types::*;
 
 pub trait PrimitiveGeometry {
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<f32>;
+    /// Vertices to be copied to a vertex buffer.
+    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f>;
+
     fn vertices(&mut self, transform: &Transform3f) -> Vec<Point3f>;
+
     fn bounding_box(&self, transform: &Transform3f) -> BoundingBox;
 }
