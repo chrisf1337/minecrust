@@ -297,7 +297,6 @@ pub struct VulkanBase {
     descriptor_sets: Vec<vk::DescriptorSet>,
 
     textures: HashMap<String, Texture>,
-    texture_sampler: vk::Sampler,
 
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
@@ -495,8 +494,6 @@ impl VulkanBase {
 
                 textures: HashMap::default(),
 
-                texture_sampler: Default::default(),
-
                 depth_image: Default::default(),
                 depth_image_memory: Default::default(),
                 depth_image_view: Default::default(),
@@ -535,7 +532,6 @@ impl VulkanBase {
             base.textures
                 .insert("cobblestone".to_string(), cobblestone_texture);
 
-            base.create_texture_sampler()?;
             for _ in &base.swapchain_images {
                 base.vertex_buffers
                     .push(VertexBuffer::new(&base, VERTEX_BUFFER_CAPCITY)?);
@@ -1147,6 +1143,7 @@ impl VulkanBase {
             image: texture_image,
             view: texture_image_view,
             memory: texture_image_memory,
+            sampler: self.create_texture_sampler()?,
         })
     }
 
@@ -1330,7 +1327,7 @@ impl VulkanBase {
         )
     }
 
-    unsafe fn create_texture_sampler(&mut self) -> VulkanResult<()> {
+    unsafe fn create_texture_sampler(&mut self) -> VulkanResult<vk::Sampler> {
         let sampler_ci = vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::NEAREST)
             .min_filter(vk::Filter::LINEAR)
@@ -1348,8 +1345,7 @@ impl VulkanBase {
             .min_lod(0.0)
             .max_lod(100.0)
             .build();
-        self.texture_sampler = self.device.create_sampler(&sampler_ci, None)?;
-        Ok(())
+        Ok(self.device.create_sampler(&sampler_ci, None)?)
     }
 
     unsafe fn transition_image_layout(
@@ -1702,17 +1698,19 @@ impl VulkanBase {
                 .offset(0)
                 .range(std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize)
                 .build();
-            let descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(self.textures["cobblestone"].view)
-                .sampler(self.texture_sampler)
-                .build();
             let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(self.descriptor_sets[index])
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(&[descriptor_buffer_info])
+                .build();
+
+            let cobblestone_texture = self.textures["cobblestone"];
+            let descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(cobblestone_texture.view)
+                .sampler(cobblestone_texture.sampler)
                 .build();
             let image_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(self.descriptor_sets[index])
@@ -1910,12 +1908,11 @@ impl Drop for VulkanBase {
 
             self.clean_up_swapchain();
 
-            self.device.destroy_sampler(self.texture_sampler, None);
-
             for texture in self.textures.values() {
                 self.device.destroy_image_view(texture.view, None);
                 self.device.destroy_image(texture.image, None);
                 self.device.free_memory(texture.memory, None);
+                self.device.destroy_sampler(texture.sampler, None);
             }
 
             self.device
