@@ -24,7 +24,7 @@ impl From<vk::Result> for RendererError {
 pub type RendererResult<T> = Result<T, RendererError>;
 
 pub trait Renderer {
-    unsafe fn draw_frame(
+    fn draw_frame(
         &mut self,
         state: &GameState,
         render_data: &RenderData,

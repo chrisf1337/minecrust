@@ -29,6 +29,7 @@ use std::{
     os::raw::*,
     path::Path,
     ptr,
+    rc::Rc,
     time::SystemTime,
 };
 #[cfg(target_os = "windows")]
@@ -252,7 +253,7 @@ pub type VulkanResult<T> = Result<T, VulkanError>;
 pub struct VulkanBase {
     entry: Entry,
     instance: Instance,
-    device: Device,
+    device: Rc<Device>,
     surface: Surface,
     window: winit::Window,
     events_loop: winit::EventsLoop,
@@ -288,7 +289,7 @@ pub struct VulkanBase {
 
     current_frame: usize,
 
-    vertex_buffers: Vec<VertexBuffer>,
+    vertex_buffers: Vec<Rc<VertexBuffer>>,
 
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
@@ -454,7 +455,7 @@ impl VulkanBase {
                 events_loop,
                 entry,
                 instance,
-                device,
+                device: Rc::new(device),
                 physical_device,
                 graphics_queue,
                 graphics_queue_family_index,
@@ -534,7 +535,7 @@ impl VulkanBase {
 
             for _ in &base.swapchain_images {
                 base.vertex_buffers
-                    .push(VertexBuffer::new(&base, VERTEX_BUFFER_CAPCITY)?);
+                    .push(Rc::new(VertexBuffer::new(&base, VERTEX_BUFFER_CAPCITY)?));
             }
 
             base.create_uniform_buffer()?;
@@ -762,6 +763,10 @@ impl VulkanBase {
         Ok(())
     }
 
+    unsafe fn create_ui_pipeline(&mut self) -> VulkanResult<vk::Pipeline> {
+        Ok(Default::default())
+    }
+
     unsafe fn create_graphics_pipeline(&mut self) -> VulkanResult<()> {
         let vert_module = self.create_shader_module_from_file("src/shaders/triangle-vert.spv")?;
         let frag_module = self.create_shader_module_from_file("src/shaders/triangle-frag.spv")?;
@@ -967,7 +972,7 @@ impl VulkanBase {
         self.device.cmd_bind_vertex_buffers(
             command_buffer,
             0,
-            &[self.vertex_buffers[index].buf],
+            &[self.vertex_buffers[index].buffer],
             &[0],
         );
 
@@ -1485,7 +1490,7 @@ impl VulkanBase {
     unsafe fn copy_data_to_vertex_buffer(
         &mut self,
         vertices: &[Vertex3f],
-        vertex_buffer: VertexBuffer,
+        vertex_buffer: Rc<VertexBuffer>,
     ) -> VulkanResult<()> {
         let buffer_size: vk::DeviceSize =
             (vertices.len() * std::mem::size_of::<Vertex3f>()) as vk::DeviceSize;
@@ -1507,7 +1512,7 @@ impl VulkanBase {
             self.transfer_queue,
             self.transfer_command_pool,
             staging_buffer,
-            vertex_buffer.buf,
+            vertex_buffer.buffer,
             buffer_size,
         )?;
         self.device.destroy_buffer(staging_buffer, None);
@@ -1928,10 +1933,12 @@ impl Drop for VulkanBase {
                 self.device.free_memory(uniform_buffer_memory, None);
             }
 
-            for vertex_buffer in &self.vertex_buffers {
-                self.device.free_memory(vertex_buffer.memory, None);
-                self.device.destroy_buffer(vertex_buffer.buf, None);
-            }
+            // for vertex_buffer in &self.vertex_buffers {
+            //     self.device.free_memory(vertex_buffer.memory, None);
+            //     self.device.destroy_buffer(vertex_buffer.buffer, None);
+            // }
+
+            self.vertex_buffers.clear();
 
             self.device.destroy_semaphore(self.semaphore, None);
             for i in 0..MAX_FRAMES_IN_FLIGHT {
@@ -1961,110 +1968,114 @@ impl Drop for VulkanBase {
 }
 
 impl Renderer for VulkanBase {
-    unsafe fn draw_frame(
+    fn draw_frame(
         &mut self,
         game_state: &GameState,
         render_data: &RenderData,
         resized: bool,
     ) -> RendererResult<()> {
-        self.device.wait_for_fences(
-            &[self.in_flight_fences[self.current_frame]],
-            true,
-            std::u64::MAX,
-        )?;
+        unsafe {
+            self.device.wait_for_fences(
+                &[self.in_flight_fences[self.current_frame]],
+                true,
+                std::u64::MAX,
+            )?;
 
-        self.uniform_push_constants.view_mat = game_state.camera.to_matrix();
+            self.uniform_push_constants.view_mat = game_state.camera.to_matrix();
 
-        if resized {
-            self.recreate_swapchain()?;
-            println!("recreated swapchain");
-            return Ok(());
-        }
-
-        match self.swapchain.acquire_next_image_khr(
-            self.swapchain_handle,
-            std::u64::MAX,
-            self.image_available_semaphores[self.current_frame],
-            vk::Fence::null(),
-        ) {
-            Ok((image_index, _)) => {
-                self.update_uniform_buffer(image_index as usize)?;
-
-                self.copy_data_to_vertex_buffer(
-                    &render_data.vertices,
-                    self.vertex_buffers[image_index as usize],
-                )?;
-
-                let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
-                LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
-                let command_buffer = CommandBuffer::new(
-                    &self.device,
-                    self.graphics_queue,
-                    self.graphics_command_pool,
-                )?;
-                self.device.cmd_push_constants(
-                    command_buffer.command_buffer,
-                    self.graphics_pipeline_layout,
-                    vk::ShaderStageFlags::VERTEX,
-                    0,
-                    &data,
-                );
-                command_buffer.submit(&[self.semaphore])?;
-
-                self.device.free_command_buffers(
-                    self.graphics_command_pool,
-                    &[self.graphics_command_buffers[image_index as usize]],
-                );
-                self.graphics_command_buffers[image_index as usize] = self
-                    .new_command_buffer(image_index as usize, render_data.vertices.len() as u32)?;
-
-                let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
-                let submit_info = vk::SubmitInfo::builder()
-                    .wait_semaphores(&[
-                        self.image_available_semaphores[self.current_frame],
-                        self.semaphore,
-                    ])
-                    .wait_dst_stage_mask(&[
-                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                        vk::PipelineStageFlags::VERTEX_SHADER,
-                    ])
-                    .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
-                    .signal_semaphores(&signal_semaphores)
-                    .build();
-
-                self.device
-                    .reset_fences(&[self.in_flight_fences[self.current_frame]])?;
-                self.device.queue_submit(
-                    self.graphics_queue,
-                    &[submit_info],
-                    self.in_flight_fences[self.current_frame],
-                )?;
-
-                let swapchains = [self.swapchain_handle];
-                let present_info = vk::PresentInfoKHR::builder()
-                    .wait_semaphores(&signal_semaphores)
-                    .swapchains(&swapchains)
-                    .image_indices(&[image_index])
-                    .build();
-
-                match self
-                    .swapchain
-                    .queue_present_khr(self.graphics_queue, &present_info)
-                {
-                    Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                        self.recreate_swapchain()?
-                    }
-                    Ok(false) => (),
-                    Err(e) => return Err(e.into()),
-                }
-                self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
-                Ok(())
-            }
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+            if resized {
                 self.recreate_swapchain()?;
-                Ok(())
+                println!("recreated swapchain");
+                return Ok(());
             }
-            Err(e) => Err(e.into()),
+
+            match self.swapchain.acquire_next_image_khr(
+                self.swapchain_handle,
+                std::u64::MAX,
+                self.image_available_semaphores[self.current_frame],
+                vk::Fence::null(),
+            ) {
+                Ok((image_index, _)) => {
+                    self.update_uniform_buffer(image_index as usize)?;
+
+                    self.copy_data_to_vertex_buffer(
+                        &render_data.vertices,
+                        self.vertex_buffers[image_index as usize].clone(),
+                    )?;
+
+                    let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
+                    LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
+                    let command_buffer = CommandBuffer::new(
+                        &self.device,
+                        self.graphics_queue,
+                        self.graphics_command_pool,
+                    )?;
+                    self.device.cmd_push_constants(
+                        command_buffer.command_buffer,
+                        self.graphics_pipeline_layout,
+                        vk::ShaderStageFlags::VERTEX,
+                        0,
+                        &data,
+                    );
+                    command_buffer.submit(&[self.semaphore])?;
+
+                    self.device.free_command_buffers(
+                        self.graphics_command_pool,
+                        &[self.graphics_command_buffers[image_index as usize]],
+                    );
+                    self.graphics_command_buffers[image_index as usize] = self.new_command_buffer(
+                        image_index as usize,
+                        render_data.vertices.len() as u32,
+                    )?;
+
+                    let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
+                    let submit_info = vk::SubmitInfo::builder()
+                        .wait_semaphores(&[
+                            self.image_available_semaphores[self.current_frame],
+                            self.semaphore,
+                        ])
+                        .wait_dst_stage_mask(&[
+                            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                            vk::PipelineStageFlags::VERTEX_SHADER,
+                        ])
+                        .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
+                        .signal_semaphores(&signal_semaphores)
+                        .build();
+
+                    self.device
+                        .reset_fences(&[self.in_flight_fences[self.current_frame]])?;
+                    self.device.queue_submit(
+                        self.graphics_queue,
+                        &[submit_info],
+                        self.in_flight_fences[self.current_frame],
+                    )?;
+
+                    let swapchains = [self.swapchain_handle];
+                    let present_info = vk::PresentInfoKHR::builder()
+                        .wait_semaphores(&signal_semaphores)
+                        .swapchains(&swapchains)
+                        .image_indices(&[image_index])
+                        .build();
+
+                    match self
+                        .swapchain
+                        .queue_present_khr(self.graphics_queue, &present_info)
+                    {
+                        Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                            self.recreate_swapchain()?
+                        }
+                        Ok(false) => (),
+                        Err(e) => return Err(e.into()),
+                    }
+                    self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+                    Ok(())
+                }
+                Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                    self.recreate_swapchain()?;
+                    Ok(())
+                }
+                Err(e) => Err(e.into()),
+            }
         }
     }
 
