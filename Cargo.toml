@@ -17,8 +17,9 @@ specs-derive = "*"
 num-traits = "*"
 alga = "*"
 ash = "*"
-winit = "*"
+winit = { git = "https://github.com/tomaka/winit.git" }
 byteorder = "*"
+freetype = "*"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = "*"

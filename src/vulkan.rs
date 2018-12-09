@@ -10,6 +10,7 @@ use crate::{
     utils::{clamp, NSEC_PER_SEC},
     vulkan::{command_buffer::CommandBuffer, texture::Texture, vertex_buffer::VertexBuffer},
 };
+use ::freetype::freetype;
 use ash;
 use ash::{
     extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
@@ -449,6 +450,10 @@ impl VulkanBase {
 
             let semaphore_ci = vk::SemaphoreCreateInfo::default();
             let semaphore = device.create_semaphore(&semaphore_ci, None)?;
+
+            // fonts
+            let mut ft_lib = std::ptr::null_mut();
+            freetype::FT_Init_FreeType(&mut ft_lib);
 
             let mut base = VulkanBase {
                 current_frame: 0,
@@ -992,19 +997,21 @@ impl VulkanBase {
         Ok(command_buffer)
     }
 
-    unsafe fn recreate_swapchain(&mut self) -> VulkanResult<()> {
-        self.device.device_wait_idle()?;
-        self.clean_up_swapchain();
-        let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
-        self.create_swapchain(width as u32, height as u32)?;
+    pub fn recreate_swapchain(&mut self) -> VulkanResult<()> {
+        unsafe {
+            self.device.device_wait_idle()?;
+            self.clean_up_swapchain();
+            let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
+            self.create_swapchain(width as u32, height as u32)?;
 
-        self.create_render_pass()?;
-        self.create_graphics_pipeline()?;
-        self.create_color_resources()?;
-        self.create_depth_resources()?;
-        self.create_framebuffers()?;
+            self.create_render_pass()?;
+            self.create_graphics_pipeline()?;
+            self.create_color_resources()?;
+            self.create_depth_resources()?;
+            self.create_framebuffers()?;
 
-        Ok(())
+            Ok(())
+        }
     }
 
     unsafe fn create_buffer(

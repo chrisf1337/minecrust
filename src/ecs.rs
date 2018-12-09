@@ -10,14 +10,13 @@ use crate::{
     types::*,
     utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC},
 };
-use glutin;
-use glutin::VirtualKeyCode;
 use specs::prelude::*;
 use specs::Entity;
 use specs_derive::Component;
 use std::{
     cell::RefCell, collections::HashSet, f32::consts::PI, ops::DerefMut, rc::Rc, time::Duration,
 };
+use winit::VirtualKeyCode;
 
 #[derive(Debug)]
 pub struct TransformComponent {
@@ -123,24 +122,24 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
     }
 }
 
-pub struct RenderState {
-    pub vao: VertexArrayObject,
-    pub selection_vao: VertexArrayObject,
-    pub crosshair_vao: VertexArrayObject,
-    pub elapsed_time: Duration,
-    pub frame_time_delta: Duration,
-    pub pressed_keys: HashSet<glutin::VirtualKeyCode>,
-    pub mouse_delta: (f64, f64),
-    pub camera: Camera,
-    pub shader_program: Program,
-    pub crosshair_shader_program: Program,
-    pub cobblestone_texture: u32,
-    pub selection_texture: u32,
-    pub crosshair_texture: u32,
-    pub projection: Matrix4f,
-    pub selected_cube: Option<Entity>,
-    pub camera_animation: Option<CameraAnimation>,
-}
+// pub struct RenderState {
+//     pub vao: VertexArrayObject,
+//     pub selection_vao: VertexArrayObject,
+//     pub crosshair_vao: VertexArrayObject,
+//     pub elapsed_time: Duration,
+//     pub frame_time_delta: Duration,
+//     pub pressed_keys: HashSet<glutin::VirtualKeyCode>,
+//     pub mouse_delta: (f64, f64),
+//     pub camera: Camera,
+//     pub shader_program: Program,
+//     pub crosshair_shader_program: Program,
+//     pub cobblestone_texture: u32,
+//     pub selection_texture: u32,
+//     pub crosshair_texture: u32,
+//     pub projection: Matrix4f,
+//     pub selected_cube: Option<Entity>,
+//     pub camera_animation: Option<CameraAnimation>,
+// }
 
 #[derive(Component, Default)]
 #[storage(NullStorage)]
@@ -216,11 +215,10 @@ impl<'a> System<'a> for RenderSystem {
         for (transform, geometry) in (&transform_storage, &mut geometry).join() {
             vertices.extend(geometry.vtx_data(&transform.transform));
         }
-        unsafe {
-            renderer
-                .draw_frame(&game_state, &RenderData { vertices }, *resized)
-                .expect("draw_frame()");
-        }
+
+        renderer
+            .draw_frame(&game_state, &RenderData { vertices }, *resized)
+            .expect("draw_frame()");
     }
 }
 
