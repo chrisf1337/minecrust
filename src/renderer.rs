@@ -1,4 +1,4 @@
-use crate::{game::GameState, types::*, vulkan::VulkanError};
+use crate::{game::GameState, types::*, vulkan::error::VulkanError};
 use ash::vk;
 use failure_derive::Fail;
 use winit::{EventsLoop, Window};

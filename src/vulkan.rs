@@ -1,16 +1,22 @@
 mod command_buffer;
+pub mod error;
 mod texture;
 mod vertex_buffer;
 
 use crate::{
+    freetype,
     game::GameState,
-    na::{geometry::Perspective3, Vector2},
+    na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
     types::*,
     utils::{clamp, NSEC_PER_SEC},
-    vulkan::{command_buffer::CommandBuffer, texture::Texture, vertex_buffer::VertexBuffer},
+    vulkan::{
+        command_buffer::CommandBuffer,
+        error::{VulkanError, VulkanResult},
+        texture::Texture,
+        vertex_buffer::VertexBuffer,
+    },
 };
-use ::freetype::freetype;
 use ash;
 use ash::{
     extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
@@ -20,7 +26,6 @@ use ash::{
 };
 use byteorder::ByteOrder;
 use byteorder::LittleEndian;
-use failure_derive::Fail;
 use image;
 use std::{
     collections::HashMap,
@@ -209,47 +214,16 @@ unsafe fn create_surface<E: EntryV1_0, I: InstanceV1_1>(
     win32_surface.create_win32_surface_khr(&win32_create_info, None)
 }
 
-#[derive(Fail, Debug)]
-pub enum VulkanError {
-    #[fail(display = "{}", _0)]
-    NulError(#[cause] std::ffi::NulError),
-    #[fail(display = "{}", _0)]
-    Str(String),
-    #[fail(display = "{}", _0)]
-    Io(#[cause] std::io::Error),
-    #[fail(display = "{}", _0)]
-    ImageError(#[cause] image::ImageError),
-    #[fail(display = "{}", _0)]
-    SystemTimeError(#[cause] std::time::SystemTimeError),
-    #[fail(display = "{}", _0)]
-    VkError(#[cause] vk::Result),
-}
-
-impl From<image::ImageError> for VulkanError {
-    fn from(err: image::ImageError) -> VulkanError {
-        VulkanError::ImageError(err)
+fn pad_font_bytes(bytes: Vec<u8>) -> Vec<u8> {
+    let mut v = vec![];
+    for b in bytes {
+        v.push(b);
+        v.push(b);
+        v.push(b);
+        v.push(255);
     }
+    v
 }
-
-impl From<std::ffi::NulError> for VulkanError {
-    fn from(err: std::ffi::NulError) -> VulkanError {
-        VulkanError::NulError(err)
-    }
-}
-
-impl From<vk::Result> for VulkanError {
-    fn from(err: vk::Result) -> VulkanError {
-        VulkanError::VkError(err)
-    }
-}
-
-impl From<std::io::Error> for VulkanError {
-    fn from(err: std::io::Error) -> VulkanError {
-        VulkanError::Io(err)
-    }
-}
-
-pub type VulkanResult<T> = Result<T, VulkanError>;
 
 pub struct VulkanBase {
     entry: Entry,
@@ -299,6 +273,7 @@ pub struct VulkanBase {
     descriptor_sets: Vec<vk::DescriptorSet>,
 
     textures: HashMap<String, Texture>,
+    texture_sampler: vk::Sampler,
 
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
@@ -451,10 +426,6 @@ impl VulkanBase {
             let semaphore_ci = vk::SemaphoreCreateInfo::default();
             let semaphore = device.create_semaphore(&semaphore_ci, None)?;
 
-            // fonts
-            let mut ft_lib = std::ptr::null_mut();
-            freetype::FT_Init_FreeType(&mut ft_lib);
-
             let mut base = VulkanBase {
                 current_frame: 0,
                 events_loop,
@@ -499,6 +470,7 @@ impl VulkanBase {
                 descriptor_sets: Default::default(),
 
                 textures: HashMap::default(),
+                texture_sampler: Default::default(),
 
                 depth_image: Default::default(),
                 depth_image_memory: Default::default(),
@@ -531,12 +503,30 @@ impl VulkanBase {
             base.create_depth_resources()?;
             base.create_framebuffers()?;
 
+            base.texture_sampler = base.create_texture_sampler()?;
+
+            // fonts
+            let ft_lib = freetype::Library::new()?;
+            let mut face = ft_lib.new_face("assets/fonts/SourceCodePro-Regular.ttf", 0)?;
+            face.set_pixel_sizes(0, 48)?;
+            face.load_char('X', freetype::LoadFlags::Render)?;
+
             let texture = base.create_texture_image("assets/texture.jpg")?;
             let cobblestone_texture =
                 base.create_texture_image("assets/cobblestone-border-arrow.png")?;
+            let x_texture = base.create_texture_image_from_bytes(
+                &pad_font_bytes(face.glyph.as_ref().unwrap().bitmap.buffer.clone()),
+                (
+                    face.glyph.as_ref().unwrap().bitmap.width,
+                    face.glyph.as_ref().unwrap().bitmap.rows,
+                ),
+                1,
+            )?;
+
             base.textures.insert("texture".to_string(), texture);
             base.textures
                 .insert("cobblestone".to_string(), cobblestone_texture);
+            base.textures.insert("x".to_string(), x_texture);
 
             for _ in &base.swapchain_images {
                 base.vertex_buffers
@@ -750,12 +740,22 @@ impl VulkanBase {
             .build();
         let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_type(vk::DescriptorType::SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .build();
+        let texture_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(2)
+            .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
         let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&[ubo_descriptor_set_layout_binding, sampler_layout_binding])
+            .bindings(&[
+                ubo_descriptor_set_layout_binding,
+                sampler_layout_binding,
+                texture_layout_binding,
+            ])
             .build();
 
         for _ in &self.swapchain_images {
@@ -1081,12 +1081,13 @@ impl VulkanBase {
         Ok((image, image_memory))
     }
 
-    unsafe fn create_texture_image<P: AsRef<Path>>(&mut self, path: P) -> VulkanResult<Texture> {
-        let img = image::open(path)?.to_rgba();
-        let (img_width, img_height) = img.dimensions();
+    unsafe fn create_texture_image_from_bytes(
+        &self,
+        bytes: &[u8],
+        (img_width, img_height): (u32, u32),
+        mip_levels: u32,
+    ) -> VulkanResult<Texture> {
         let img_size = vk::DeviceSize::from(img_width * img_height * 4);
-        let mip_levels = f32::floor(f32::log2(u32::max(img_width, img_height) as f32)) as u32 + 1;
-
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             img_size,
             vk::BufferUsageFlags::TRANSFER_SRC,
@@ -1095,12 +1096,12 @@ impl VulkanBase {
         let data = self.device.map_memory(
             staging_buffer_memory,
             0,
-            img_size as vk::DeviceSize,
+            img_size,
             vk::MemoryMapFlags::empty(),
         )? as *mut u8;
-        let img_vec = img.to_vec();
-        assert_eq!(img_vec.len(), img_size as usize);
-        std::ptr::copy_nonoverlapping(img_vec.as_ptr(), data, img_vec.len());
+
+        assert_eq!(bytes.len(), img_size as usize);
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
         self.device.unmap_memory(staging_buffer_memory);
 
         let (texture_image, texture_image_memory) = self.create_image(
@@ -1155,8 +1156,15 @@ impl VulkanBase {
             image: texture_image,
             view: texture_image_view,
             memory: texture_image_memory,
-            sampler: self.create_texture_sampler()?,
         })
+    }
+
+    unsafe fn create_texture_image<P: AsRef<Path>>(&mut self, path: P) -> VulkanResult<Texture> {
+        let img = image::open(path)?.to_rgba();
+        let (img_width, img_height) = img.dimensions();
+        let mip_levels = f32::floor(f32::log2(u32::max(img_width, img_height) as f32)) as u32 + 1;
+
+        self.create_texture_image_from_bytes(&img.to_vec(), (img_width, img_height), mip_levels)
     }
 
     unsafe fn create_image_view(
@@ -1327,7 +1335,7 @@ impl VulkanBase {
     }
 
     unsafe fn create_texture_image_view(
-        &mut self,
+        &self,
         texture_image: vk::Image,
         mip_levels: u32,
     ) -> VulkanResult<vk::ImageView> {
@@ -1339,7 +1347,7 @@ impl VulkanBase {
         )
     }
 
-    unsafe fn create_texture_sampler(&mut self) -> VulkanResult<vk::Sampler> {
+    unsafe fn create_texture_sampler(&self) -> VulkanResult<vk::Sampler> {
         let sampler_ci = vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::NEAREST)
             .min_filter(vk::Filter::LINEAR)
@@ -1682,11 +1690,15 @@ impl VulkanBase {
             .descriptor_count(self.swapchain_images.len() as u32)
             .build();
         let sampler_pool_size = vk::DescriptorPoolSize::builder()
-            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .ty(vk::DescriptorType::SAMPLER)
+            .descriptor_count(self.swapchain_images.len() as u32)
+            .build();
+        let texture_pool_size = vk::DescriptorPoolSize::builder()
+            .ty(vk::DescriptorType::SAMPLED_IMAGE)
             .descriptor_count(self.swapchain_images.len() as u32)
             .build();
         let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&[uniforms_pool_size, sampler_pool_size])
+            .pool_sizes(&[uniforms_pool_size, sampler_pool_size, texture_pool_size])
             .max_sets(self.swapchain_images.len() as u32)
             .build();
         self.descriptor_pool = self
@@ -1718,21 +1730,38 @@ impl VulkanBase {
                 .buffer_info(&[descriptor_buffer_info])
                 .build();
 
-            let cobblestone_texture = self.textures["cobblestone"];
-            let descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(cobblestone_texture.view)
-                .sampler(cobblestone_texture.sampler)
+            // binding 1: sampler
+            let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .sampler(self.texture_sampler)
                 .build();
-            let image_write_descriptor_set = vk::WriteDescriptorSet::builder()
+            let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(self.descriptor_sets[index])
                 .dst_binding(1)
                 .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&[descriptor_image_info])
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .image_info(&[sampler_descriptor_image_info])
                 .build();
+
+            // binding 2: image
+            let cobblestone_texture = self.textures["x"];
+            let texture_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(cobblestone_texture.view)
+                .build();
+            let texture_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[index])
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&[texture_descriptor_image_info])
+                .build();
+
             self.device.update_descriptor_sets(
-                &[buffer_write_descriptor_set, image_write_descriptor_set],
+                &[
+                    buffer_write_descriptor_set,
+                    sampler_write_descriptor_set,
+                    texture_write_descriptor_set,
+                ],
                 &[],
             );
         }
@@ -1924,9 +1953,9 @@ impl Drop for VulkanBase {
                 self.device.destroy_image_view(texture.view, None);
                 self.device.destroy_image(texture.image, None);
                 self.device.free_memory(texture.memory, None);
-                self.device.destroy_sampler(texture.sampler, None);
             }
 
+            self.device.destroy_sampler(self.texture_sampler, None);
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
             for &descriptor_set_layout in &self.descriptor_set_layouts {

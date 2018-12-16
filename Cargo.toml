@@ -20,6 +20,7 @@ ash = "*"
 winit = { git = "https://github.com/tomaka/winit.git" }
 byteorder = "*"
 freetype = "*"
+bitflags = "*"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = "*"
