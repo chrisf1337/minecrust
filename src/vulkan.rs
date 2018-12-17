@@ -250,9 +250,13 @@ pub struct VulkanBase {
     swapchain_framebuffers: Vec<vk::Framebuffer>,
 
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
-    graphics_pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
+
     graphics_pipeline: vk::Pipeline,
+    graphics_pipeline_layout: vk::PipelineLayout,
+
+    text_pipeline: vk::Pipeline,
+    text_pipeline_layout: vk::PipelineLayout,
 
     graphics_command_pool: vk::CommandPool,
     graphics_command_buffers: Vec<vk::CommandBuffer>,
@@ -452,8 +456,12 @@ impl VulkanBase {
                 swapchain_framebuffers: Default::default(),
 
                 descriptor_set_layouts: Default::default(),
+
                 graphics_pipeline_layout: Default::default(),
                 graphics_pipeline: Default::default(),
+                text_pipeline_layout: Default::default(),
+                text_pipeline: Default::default(),
+
                 graphics_command_pool: Default::default(),
                 graphics_command_buffers: Default::default(),
                 transfer_command_pool: Default::default(),
@@ -496,6 +504,7 @@ impl VulkanBase {
             base.create_render_pass()?;
             base.create_descriptor_set_layout()?;
             base.create_graphics_pipeline()?;
+            base.create_text_pipeline()?;
 
             base.create_command_pools()?;
 
@@ -653,6 +662,114 @@ impl VulkanBase {
         Ok(())
     }
 
+    unsafe fn create_text_pipeline(&mut self) -> VulkanResult<()> {
+        let vert_module = self.create_shader_module_from_file("src/shaders/text-vert.spv")?;
+        let frag_module = self.create_shader_module_from_file("src/shaders/text-frag.spv")?;
+        let shader_stage_name = CString::new("main")?;
+        let vert_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vert_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let frag_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(frag_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
+
+        let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(&[Vertex2f::binding_description()])
+            .vertex_attribute_descriptions(&Vertex2f::attribute_descriptions())
+            .build();
+        let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .primitive_restart_enable(false);
+        let viewport = vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(self.swapchain_extent.width as f32)
+            .height(self.swapchain_extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0)
+            .build();
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: self.swapchain_extent,
+        };
+        let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
+            .viewports(&[viewport])
+            .scissors(&[scissor])
+            .build();
+        let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::BACK)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false)
+            .build();
+        let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
+            .sample_shading_enable(true)
+            .rasterization_samples(self.msaa_samples)
+            .min_sample_shading(0.2)
+            .build();
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::all())
+            .blend_enable(false)
+            .build();
+        let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op_enable(false)
+            .attachments(&[color_blend_attachment])
+            .build();
+        let depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(false)
+            .depth_write_enable(false)
+            .depth_compare_op(vk::CompareOp::LESS)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false);
+        let push_constant_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .size(std::mem::size_of::<UniformPushConstants>() as u32)
+            .offset(0)
+            .build();
+        let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(&self.descriptor_set_layouts)
+            .push_constant_ranges(&[push_constant_range])
+            .build();
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&graphics_pipeline_layout_ci, None)?;
+
+        let pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&shader_stages)
+            .vertex_input_state(&vertex_input_state_ci)
+            .input_assembly_state(&input_assembly_state_ci)
+            .viewport_state(&viewport_state_ci)
+            .rasterization_state(&rasterizer_state_ci)
+            .multisample_state(&multisample_state_ci)
+            .color_blend_state(&color_blend_state_ci)
+            .depth_stencil_state(&depth_stencil_state_ci)
+            .layout(self.graphics_pipeline_layout)
+            .render_pass(self.render_pass)
+            .subpass(0)
+            .build();
+        let pipeline = self
+            .device
+            .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_ci], None)
+            .map_err(|x| x.1)?[0];
+
+        // clean up shader modules
+        self.device.destroy_shader_module(vert_module, None);
+        self.device.destroy_shader_module(frag_module, None);
+
+        self.text_pipeline_layout = pipeline_layout;
+        self.text_pipeline = pipeline;
+
+        Ok(())
+    }
+
     unsafe fn create_render_pass(&mut self) -> VulkanResult<()> {
         let color_attachment_description = vk::AttachmentDescription::builder()
             .format(self.surface_format.format)
@@ -768,10 +885,6 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn create_ui_pipeline(&mut self) -> VulkanResult<vk::Pipeline> {
-        Ok(Default::default())
-    }
-
     unsafe fn create_graphics_pipeline(&mut self) -> VulkanResult<()> {
         let vert_module = self.create_shader_module_from_file("src/shaders/triangle-vert.spv")?;
         let frag_module = self.create_shader_module_from_file("src/shaders/triangle-frag.spv")?;
@@ -822,7 +935,6 @@ impl VulkanBase {
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-            // .front_face(vk::FrontFace::CLOCKWISE)
             .depth_bias_enable(false)
             .build();
         let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
@@ -850,7 +962,7 @@ impl VulkanBase {
             .stencil_test_enable(false);
         let push_constant_range = vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .size(std::mem::size_of::<UniformBufferObject>() as u32)
+            .size(std::mem::size_of::<UniformPushConstants>() as u32)
             .offset(0)
             .build();
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
@@ -1743,7 +1855,7 @@ impl VulkanBase {
                 .build();
 
             // binding 2: image
-            let cobblestone_texture = self.textures["x"];
+            let cobblestone_texture = self.textures["cobblestone"];
             let texture_descriptor_image_info = vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(cobblestone_texture.view)
@@ -1928,9 +2040,15 @@ impl VulkanBase {
         }
         self.device
             .free_command_buffers(self.graphics_command_pool, &self.graphics_command_buffers);
+
         self.device.destroy_pipeline(self.graphics_pipeline, None);
         self.device
             .destroy_pipeline_layout(self.graphics_pipeline_layout, None);
+
+        self.device.destroy_pipeline(self.text_pipeline, None);
+        self.device
+            .destroy_pipeline_layout(self.text_pipeline_layout, None);
+
         self.device.destroy_render_pass(self.render_pass, None);
         for &image_view in self.swapchain_image_views.iter() {
             self.device.destroy_image_view(image_view, None);
