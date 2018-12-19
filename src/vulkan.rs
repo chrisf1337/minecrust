@@ -1,5 +1,5 @@
-mod command_buffer;
 pub mod error;
+mod one_time_command_buffer;
 mod texture;
 mod vertex_buffer;
 
@@ -11,8 +11,8 @@ use crate::{
     types::*,
     utils::{clamp, NSEC_PER_SEC},
     vulkan::{
-        command_buffer::CommandBuffer,
         error::{VulkanError, VulkanResult},
+        one_time_command_buffer::OneTimeCommandBuffer,
         texture::Texture,
         vertex_buffer::VertexBuffer,
     },
@@ -43,7 +43,7 @@ use winapi;
 use winit;
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
-const MAX_FRAMES_IN_FLIGHT: usize = 2;
+const MAX_FRAMES_IN_FLIGHT: usize = 5;
 const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 2048;
 
 #[repr(C)]
@@ -248,6 +248,7 @@ pub struct VulkanBase {
     swapchain_images: Vec<vk::Image>,
     swapchain_image_views: Vec<vk::ImageView>,
     swapchain_framebuffers: Vec<vk::Framebuffer>,
+    swapchain_len: usize,
 
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     render_pass: vk::RenderPass,
@@ -454,6 +455,7 @@ impl VulkanBase {
                 swapchain_images: Default::default(),
                 swapchain_image_views: Default::default(),
                 swapchain_framebuffers: Default::default(),
+                swapchain_len: 0,
 
                 descriptor_set_layouts: Default::default(),
 
@@ -465,6 +467,7 @@ impl VulkanBase {
                 graphics_command_pool: Default::default(),
                 graphics_command_buffers: Default::default(),
                 transfer_command_pool: Default::default(),
+
                 image_available_semaphores: Default::default(),
                 render_finished_semaphores: Default::default(),
                 in_flight_fences: Default::default(),
@@ -500,7 +503,7 @@ impl VulkanBase {
             base.msaa_samples = base.get_max_usable_sample_count();
 
             base.create_swapchain(screen_width, screen_height)?;
-            base.graphics_command_buffers = vec![Default::default(); base.swapchain_images.len()];
+            base.graphics_command_buffers = vec![Default::default(); base.swapchain_len];
             base.create_render_pass()?;
             base.create_descriptor_set_layout()?;
             base.create_graphics_pipeline()?;
@@ -659,6 +662,9 @@ impl VulkanBase {
                 vk::ImageAspectFlags::COLOR,
             )?);
         }
+
+        self.swapchain_len = self.swapchain_images.len();
+
         Ok(())
     }
 
@@ -1034,29 +1040,27 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn new_command_buffer(
+    unsafe fn new_render_pass_command_buffer(
         &mut self,
         index: usize,
-        n_vertices: u32,
+        secondary_command_buffers: &[vk::CommandBuffer],
     ) -> VkResult<vk::CommandBuffer> {
         let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.graphics_command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1)
             .build();
-        let command_buffer = self
+        let cmd_buf = self
             .device
             .allocate_command_buffers(&command_buffer_alloc_info)?[0];
-
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
             .build();
-        self.device
-            .begin_command_buffer(command_buffer, &begin_info)?;
-        let swapchain_framebuffer = self.swapchain_framebuffers[index];
+        self.device.begin_command_buffer(cmd_buf, &begin_info)?;
+
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.render_pass)
-            .framebuffer(swapchain_framebuffer)
+            .framebuffer(self.swapchain_framebuffers[index])
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: self.swapchain_extent,
@@ -1075,24 +1079,62 @@ impl VulkanBase {
                 },
             ])
             .build();
+
         self.device.cmd_begin_render_pass(
-            command_buffer,
+            cmd_buf,
             &render_pass_begin_info,
-            vk::SubpassContents::INLINE,
+            vk::SubpassContents::SECONDARY_COMMAND_BUFFERS,
         );
+
+        self.device
+            .cmd_execute_commands(cmd_buf, secondary_command_buffers);
+
+        self.device.cmd_end_render_pass(cmd_buf);
+        self.device.end_command_buffer(cmd_buf)?;
+
+        Ok(cmd_buf)
+    }
+
+    unsafe fn new_graphics_command_buffer(
+        &mut self,
+        index: usize,
+        n_vertices: u32,
+    ) -> VkResult<vk::CommandBuffer> {
+        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.graphics_command_pool)
+            .level(vk::CommandBufferLevel::SECONDARY)
+            .command_buffer_count(1)
+            .build();
+        let command_buffer = self
+            .device
+            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
+
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .inheritance_info(
+                &vk::CommandBufferInheritanceInfo::builder()
+                    .render_pass(self.render_pass)
+                    .subpass(0)
+                    .build(),
+            )
+            .flags(
+                vk::CommandBufferUsageFlags::SIMULTANEOUS_USE
+                    | vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE,
+            )
+            .build();
+        self.device
+            .begin_command_buffer(command_buffer, &begin_info)?;
+
         self.device.cmd_bind_pipeline(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
             self.graphics_pipeline,
         );
-
         self.device.cmd_bind_vertex_buffers(
             command_buffer,
             0,
             &[self.vertex_buffers[index].buffer],
             &[0],
         );
-
         self.device.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
@@ -1103,7 +1145,7 @@ impl VulkanBase {
         );
 
         self.device.cmd_draw(command_buffer, n_vertices, 1, 0, 0);
-        self.device.cmd_end_render_pass(command_buffer);
+
         self.device.end_command_buffer(command_buffer)?;
 
         Ok(command_buffer)
@@ -1229,7 +1271,7 @@ impl VulkanBase {
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 
-        let command_buffer = CommandBuffer::new(
+        let command_buffer = OneTimeCommandBuffer::new(
             &self.device,
             self.graphics_queue,
             self.graphics_command_pool,
@@ -1324,7 +1366,7 @@ impl VulkanBase {
             )));
         }
 
-        let command_buffer = CommandBuffer::new(
+        let command_buffer = OneTimeCommandBuffer::new(
             &self.device,
             self.graphics_queue,
             self.graphics_command_pool,
@@ -1482,7 +1524,7 @@ impl VulkanBase {
 
     unsafe fn transition_image_layout(
         &self,
-        command_buffer: &CommandBuffer,
+        command_buffer: &OneTimeCommandBuffer,
         image: vk::Image,
         format: vk::Format,
         mip_levels: u32,
@@ -1578,7 +1620,7 @@ impl VulkanBase {
 
     unsafe fn copy_buffer_to_image(
         &self,
-        command_buffer: &CommandBuffer,
+        command_buffer: &OneTimeCommandBuffer,
         buffer: vk::Buffer,
         image: vk::Image,
         width: u32,
@@ -1649,7 +1691,7 @@ impl VulkanBase {
 
     unsafe fn create_uniform_buffer(&mut self) -> VkResult<()> {
         let buffer_size = std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize;
-        for _ in 0..self.swapchain_images.len() {
+        for _ in 0..self.swapchain_len {
             let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
                 buffer_size,
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -1799,19 +1841,19 @@ impl VulkanBase {
     unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
         let uniforms_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(self.swapchain_images.len() as u32)
+            .descriptor_count(self.swapchain_len as u32)
             .build();
         let sampler_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLER)
-            .descriptor_count(self.swapchain_images.len() as u32)
+            .descriptor_count(self.swapchain_len as u32)
             .build();
         let texture_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLED_IMAGE)
-            .descriptor_count(self.swapchain_images.len() as u32)
+            .descriptor_count(self.swapchain_len as u32)
             .build();
         let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(&[uniforms_pool_size, sampler_pool_size, texture_pool_size])
-            .max_sets(self.swapchain_images.len() as u32)
+            .max_sets(self.swapchain_len as u32)
             .build();
         self.descriptor_pool = self
             .device
@@ -1901,7 +1943,7 @@ impl VulkanBase {
             vk::ImageAspectFlags::COLOR,
         )?;
 
-        let command_buffer = CommandBuffer::new(
+        let command_buffer = OneTimeCommandBuffer::new(
             &self.device,
             self.graphics_queue,
             self.graphics_command_pool,
@@ -1938,7 +1980,7 @@ impl VulkanBase {
             self.create_image_view(depth_image, depth_format, 1, vk::ImageAspectFlags::DEPTH)?;
         self.depth_image = depth_image;
         self.depth_image_memory = depth_image_memory;
-        let command_buffer = CommandBuffer::new(
+        let command_buffer = OneTimeCommandBuffer::new(
             &self.device,
             self.graphics_queue,
             self.graphics_command_pool,
@@ -2159,7 +2201,7 @@ impl Renderer for VulkanBase {
 
                     let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
                     LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
-                    let command_buffer = CommandBuffer::new(
+                    let command_buffer = OneTimeCommandBuffer::new(
                         &self.device,
                         self.graphics_queue,
                         self.graphics_command_pool,
@@ -2177,12 +2219,15 @@ impl Renderer for VulkanBase {
                         self.graphics_command_pool,
                         &[self.graphics_command_buffers[image_index as usize]],
                     );
-                    self.graphics_command_buffers[image_index as usize] = self.new_command_buffer(
-                        image_index as usize,
-                        render_data.vertices.len() as u32,
-                    )?;
+                    self.graphics_command_buffers[image_index as usize] = self
+                        .new_graphics_command_buffer(
+                            image_index as usize,
+                            render_data.vertices.len() as u32,
+                        )?;
 
                     let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
+
+                    // Start render pass
                     let submit_info = vk::SubmitInfo::builder()
                         .wait_semaphores(&[
                             self.image_available_semaphores[self.current_frame],
@@ -2192,7 +2237,10 @@ impl Renderer for VulkanBase {
                             vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                             vk::PipelineStageFlags::VERTEX_SHADER,
                         ])
-                        .command_buffers(&[self.graphics_command_buffers[image_index as usize]])
+                        .command_buffers(&[self.new_render_pass_command_buffer(
+                            image_index as usize,
+                            &[self.graphics_command_buffers[image_index as usize]],
+                        )?])
                         .signal_semaphores(&signal_semaphores)
                         .build();
 

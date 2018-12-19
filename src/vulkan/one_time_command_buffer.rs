@@ -1,19 +1,19 @@
 use crate::vulkan::VulkanResult;
 use ash::{version::DeviceV1_0, vk, Device};
 
-pub struct CommandBuffer<'a> {
+pub struct OneTimeCommandBuffer<'a> {
     pub command_buffer: vk::CommandBuffer,
     device: &'a Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
 }
 
-impl<'a> CommandBuffer<'a> {
+impl<'a> OneTimeCommandBuffer<'a> {
     pub fn new(
         device: &Device,
         queue: vk::Queue,
         command_pool: vk::CommandPool,
-    ) -> VulkanResult<CommandBuffer> {
+    ) -> VulkanResult<OneTimeCommandBuffer> {
         unsafe {
             let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
                 .level(vk::CommandBufferLevel::PRIMARY)
@@ -25,7 +25,7 @@ impl<'a> CommandBuffer<'a> {
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
                 .build();
             device.begin_command_buffer(command_buffer, &command_buffer_begin_info)?;
-            Ok(CommandBuffer {
+            Ok(OneTimeCommandBuffer {
                 command_buffer,
                 device,
                 queue,
