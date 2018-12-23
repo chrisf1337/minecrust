@@ -64,8 +64,7 @@ impl<'a, 'b> Game<'a, 'b> {
             DispatcherBuilder::new()
                 .with(
                     BoundingBoxComponentSystem::new(
-                        transform_components.track_inserted(),
-                        transform_components.track_modified(),
+                        transform_components.register_reader(),
                         BitSet::new(),
                         BitSet::new(),
                     ),

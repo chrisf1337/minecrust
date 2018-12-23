@@ -3,7 +3,7 @@ use ::freetype::freetype as ft;
 use bitflags::bitflags;
 use std::{ffi::CString, os::raw::c_long, path::Path};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Library {
     lib: ft::FT_Library,
 }
@@ -23,7 +23,7 @@ impl Library {
         }
     }
 
-    pub fn new_face<P: AsRef<Path>>(self, filepath: P, face_index: c_long) -> FtResult<Face> {
+    pub fn new_face<P: AsRef<Path>>(&self, filepath: P, face_index: c_long) -> FtResult<Face> {
         let mut face = std::ptr::null_mut();
         let path = CString::new(filepath.as_ref().to_str().unwrap()).unwrap();
         unsafe {
@@ -32,6 +32,14 @@ impl Library {
                 ft::FT_New_Face(self.lib, path.as_ptr(), face_index, &mut face)
             )?;
             Ok(Face { face, glyph: None })
+        }
+    }
+}
+
+impl Drop for Library {
+    fn drop(&mut self) {
+        unsafe {
+            ft::FT_Done_FreeType(self.lib);
         }
     }
 }
@@ -60,6 +68,14 @@ impl Face {
             )?;
             self.glyph = Some(Glyph::new((*self.face).glyph));
             Ok(())
+        }
+    }
+}
+
+impl Drop for Face {
+    fn drop(&mut self) {
+        unsafe {
+            ft::FT_Done_Face(self.face);
         }
     }
 }

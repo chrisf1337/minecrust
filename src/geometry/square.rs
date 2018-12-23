@@ -1,6 +1,7 @@
 use crate::geometry::{rectangle::Rectangle, BoundingBox, PrimitiveGeometry};
 use crate::types::*;
 
+#[derive(Clone, Debug)]
 pub struct Square {
     rect: Rectangle,
 }

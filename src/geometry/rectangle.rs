@@ -4,6 +4,7 @@ use crate::{
 };
 
 /// A 2d rectangle along the xz plane.
+#[derive(Clone, Debug)]
 pub struct Rectangle {
     pub width: f32,  // along x axis
     pub height: f32, // along z axis

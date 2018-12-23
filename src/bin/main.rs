@@ -8,8 +8,6 @@ use crate::na::{Perspective3, Rotation3, Translation3};
 use alga::general::SubsetOf;
 use failure::{err_msg, Error};
 use failure_derive::Fail;
-use gl::types::*;
-use glutin::{dpi::*, Event, GlContext, GlRequest, VirtualKeyCode, WindowEvent};
 use minecrust::game::Game;
 use specs::prelude::*;
 use std::{

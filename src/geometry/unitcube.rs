@@ -4,6 +4,7 @@ use crate::types::*;
 use alga::general::SubsetOf;
 use std::f32::consts::{FRAC_PI_2, PI};
 
+#[derive(Clone, Debug)]
 pub struct UnitCube {
     pub side_len: f32,
     transforms: Vec<Transform3f>,
@@ -13,29 +14,29 @@ impl UnitCube {
     pub fn new(side_len: f32) -> UnitCube {
         let transforms = vec![
             // top
-            Translation3::from_vector(Vector3f::new(0.0, side_len / 2.0, 0.0)).to_superset(),
+            Translation3::from(Vector3f::new(0.0, side_len / 2.0, 0.0)).to_superset(),
             Isometry::from_parts(
-                Translation3::from_vector(Vector3f::new(0.0, 0.0, side_len / 2.0)),
+                Translation3::from(Vector3f::new(0.0, 0.0, side_len / 2.0)),
                 Rotation3::from_axis_angle(&Vector3f::x_axis(), FRAC_PI_2),
             )
             .to_superset(),
             Isometry::from_parts(
-                Translation3::from_vector(Vector3f::new(side_len / 2.0, 0.0, 0.0)),
+                Translation3::from(Vector3f::new(side_len / 2.0, 0.0, 0.0)),
                 Rotation3::from_axis_angle(&Vector3f::z_axis(), -FRAC_PI_2),
             )
             .to_superset(),
             Isometry::from_parts(
-                Translation3::from_vector(Vector3f::new(0.0, 0.0, -side_len / 2.0)),
+                Translation3::from(Vector3f::new(0.0, 0.0, -side_len / 2.0)),
                 Rotation3::from_axis_angle(&Vector3f::x_axis(), -FRAC_PI_2),
             )
             .to_superset(),
             Isometry::from_parts(
-                Translation3::from_vector(Vector3f::new(-side_len / 2.0, 0.0, 0.0)),
+                Translation3::from(Vector3f::new(-side_len / 2.0, 0.0, 0.0)),
                 Rotation3::from_axis_angle(&Vector3f::z_axis(), FRAC_PI_2),
             )
             .to_superset(),
             Isometry::from_parts(
-                Translation3::from_vector(Vector3f::new(0.0, -side_len / 2.0, 0.0)),
+                Translation3::from(Vector3f::new(0.0, -side_len / 2.0, 0.0)),
                 Rotation3::from_axis_angle(&Vector3f::x_axis(), PI),
             )
             .to_superset(),

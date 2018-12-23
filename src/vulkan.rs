@@ -271,8 +271,9 @@ pub struct VulkanBase {
     current_frame: usize,
 
     vertex_buffers: Vec<VertexBuffer<Vertex3f>>,
-    text_staging_vertex_buffers: Vec<VertexBuffer<Vertex2f>>,
-    text_vertex_buffers: Vec<VertexBuffer<Vertex2f>>,
+    text_staging_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
+    text_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
+    space_width: usize,
 
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
@@ -479,6 +480,7 @@ impl VulkanBase {
                 vertex_buffers: Default::default(),
                 text_staging_vertex_buffers: Default::default(),
                 text_vertex_buffers: Default::default(),
+                space_width: 0,
 
                 uniform_buffers: Default::default(),
                 uniform_buffers_memory: Default::default(),
@@ -527,24 +529,31 @@ impl VulkanBase {
             let ft_lib = freetype::Library::new()?;
             let mut face = ft_lib.new_face("assets/fonts/SourceCodePro-Regular.ttf", 0)?;
             face.set_pixel_sizes(0, 48)?;
-            face.load_char('X', freetype::LoadFlags::Render)?;
+
+            for c in 0..128u8 {
+                let c = c as char;
+                face.load_char(c, freetype::LoadFlags::Render)?;
+                let bitmap = &face.glyph.as_ref().unwrap().bitmap;
+                if bitmap.buffer.is_empty() {
+                    continue;
+                }
+                if base.space_width == 0 {
+                    base.space_width = bitmap.width as usize;
+                }
+                let texture = base.create_texture_image_from_bytes(
+                    &pad_font_bytes(bitmap.buffer.clone()),
+                    (bitmap.width, bitmap.rows),
+                    1,
+                )?;
+                base.textures.insert(c.to_string(), texture);
+            }
 
             let texture = base.create_texture_image("assets/texture.jpg")?;
             let cobblestone_texture =
                 base.create_texture_image("assets/cobblestone-border-arrow.png")?;
-            let x_texture = base.create_texture_image_from_bytes(
-                &pad_font_bytes(face.glyph.as_ref().unwrap().bitmap.buffer.clone()),
-                (
-                    face.glyph.as_ref().unwrap().bitmap.width,
-                    face.glyph.as_ref().unwrap().bitmap.rows,
-                ),
-                1,
-            )?;
-
             base.textures.insert("texture".to_string(), texture);
             base.textures
                 .insert("cobblestone".to_string(), cobblestone_texture);
-            base.textures.insert("x".to_string(), x_texture);
 
             for _ in &base.swapchain_images {
                 base.vertex_buffers.push(VertexBuffer::new(
@@ -739,7 +748,13 @@ impl VulkanBase {
             .build();
         let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
             .color_write_mask(vk::ColorComponentFlags::all())
-            .blend_enable(false)
+            .blend_enable(true)
+            .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .color_blend_op(vk::BlendOp::ADD)
+            .src_alpha_blend_factor(vk::BlendFactor::ONE)
+            .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+            .alpha_blend_op(vk::BlendOp::ADD)
             .build();
         let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op_enable(false)
@@ -1213,7 +1228,6 @@ impl VulkanBase {
         &self,
         index: usize,
         vertices: &[Vertex2f],
-        semaphore: vk::Semaphore,
     ) -> VkResult<()> {
         let buf_size = (std::mem::size_of::<Vertex2f>() * vertices.len()) as vk::DeviceSize;
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
@@ -1247,11 +1261,33 @@ impl VulkanBase {
             .build();
         self.device.begin_command_buffer(cmd_buf, &begin_info)?;
 
-        // self.device.cmd_copy_buffer(cmd_buf, self.text_staging_vertex_buffers[index].buffer, self.text_vertex_buffers[index].buffer, vk::BufferCopy::builder().size(size: DeviceSize))
+        self.device.cmd_copy_buffer(
+            cmd_buf,
+            self.text_staging_vertex_buffers[index].buffer,
+            self.text_vertex_buffers[index].buffer,
+            &[vk::BufferCopy::builder()
+                .size(self.text_staging_vertex_buffers[index].len)
+                .build()],
+        );
+        self.device.cmd_pipeline_barrier(
+            cmd_buf,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[vk::BufferMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .src_queue_family_index(self.transfer_queue_family_index)
+                .dst_queue_family_index(self.graphics_queue_family_index)
+                .build()],
+            &[],
+        );
 
-        self.device.end_command_buffer(cmd_buf);
+        self.device.end_command_buffer(cmd_buf)?;
         Ok(cmd_buf)
     }
+
+    unsafe fn draw_text(string: &str, pos: Point2f, scale: f32, color: Color) {}
 
     pub fn recreate_swapchain(&mut self) -> VulkanResult<()> {
         unsafe {

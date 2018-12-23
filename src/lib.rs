@@ -6,18 +6,16 @@
 use nalgebra as na;
 
 #[macro_use]
-pub mod utils;
-pub mod bvh;
-pub mod camera;
-pub mod debug;
-pub mod ecs;
-pub mod event_handlers;
-pub mod freetype;
+mod utils;
+mod bvh;
+mod camera;
+mod ecs;
+mod event_handlers;
+mod freetype;
 pub mod game;
-pub mod geometry;
-pub mod gl;
+mod geometry;
 pub mod renderer;
-pub mod types;
+mod types;
 pub mod vulkan;
 
 pub use crate::types::*;
