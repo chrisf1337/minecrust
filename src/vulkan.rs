@@ -44,7 +44,7 @@ use winit;
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
 const MAX_FRAMES_IN_FLIGHT: usize = 5;
-const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 2048;
+const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 1 << 20;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -262,6 +262,7 @@ pub struct VulkanBase {
     graphics_command_pool: vk::CommandPool,
     graphics_command_buffers: Vec<vk::CommandBuffer>,
     transfer_command_pool: vk::CommandPool,
+    transfer_command_buffers: Vec<vk::CommandBuffer>,
 
     image_available_semaphores: Vec<vk::Semaphore>,
     render_finished_semaphores: Vec<vk::Semaphore>,
@@ -269,7 +270,9 @@ pub struct VulkanBase {
 
     current_frame: usize,
 
-    vertex_buffers: Vec<Rc<VertexBuffer>>,
+    vertex_buffers: Vec<VertexBuffer<Vertex3f>>,
+    text_staging_vertex_buffers: Vec<VertexBuffer<Vertex2f>>,
+    text_vertex_buffers: Vec<VertexBuffer<Vertex2f>>,
 
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
@@ -467,12 +470,15 @@ impl VulkanBase {
                 graphics_command_pool: Default::default(),
                 graphics_command_buffers: Default::default(),
                 transfer_command_pool: Default::default(),
+                transfer_command_buffers: Default::default(),
 
                 image_available_semaphores: Default::default(),
                 render_finished_semaphores: Default::default(),
                 in_flight_fences: Default::default(),
 
                 vertex_buffers: Default::default(),
+                text_staging_vertex_buffers: Default::default(),
+                text_vertex_buffers: Default::default(),
 
                 uniform_buffers: Default::default(),
                 uniform_buffers_memory: Default::default(),
@@ -501,9 +507,11 @@ impl VulkanBase {
             };
 
             base.msaa_samples = base.get_max_usable_sample_count();
+            base.texture_sampler = base.create_texture_sampler()?;
 
             base.create_swapchain(screen_width, screen_height)?;
             base.graphics_command_buffers = vec![Default::default(); base.swapchain_len];
+            base.transfer_command_buffers = vec![Default::default(); base.swapchain_len];
             base.create_render_pass()?;
             base.create_descriptor_set_layout()?;
             base.create_graphics_pipeline()?;
@@ -514,8 +522,6 @@ impl VulkanBase {
             base.create_color_resources()?;
             base.create_depth_resources()?;
             base.create_framebuffers()?;
-
-            base.texture_sampler = base.create_texture_sampler()?;
 
             // fonts
             let ft_lib = freetype::Library::new()?;
@@ -541,8 +547,18 @@ impl VulkanBase {
             base.textures.insert("x".to_string(), x_texture);
 
             for _ in &base.swapchain_images {
-                base.vertex_buffers
-                    .push(Rc::new(VertexBuffer::new(&base, VERTEX_BUFFER_CAPCITY)?));
+                base.vertex_buffers.push(VertexBuffer::new(
+                    &base,
+                    VERTEX_BUFFER_CAPCITY,
+                    vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                )?);
+                base.text_vertex_buffers.push(VertexBuffer::new(
+                    &base,
+                    VERTEX_BUFFER_CAPCITY,
+                    vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                )?);
             }
 
             base.create_uniform_buffer()?;
@@ -866,6 +882,7 @@ impl VulkanBase {
             .descriptor_type(vk::DescriptorType::SAMPLER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .immutable_samplers(&[self.texture_sampler])
             .build();
         let texture_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(2)
@@ -1096,7 +1113,7 @@ impl VulkanBase {
     }
 
     unsafe fn new_graphics_command_buffer(
-        &mut self,
+        &self,
         index: usize,
         n_vertices: u32,
     ) -> VkResult<vk::CommandBuffer> {
@@ -1149,6 +1166,91 @@ impl VulkanBase {
         self.device.end_command_buffer(command_buffer)?;
 
         Ok(command_buffer)
+    }
+
+    unsafe fn new_text_command_buffer(&self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.graphics_command_pool)
+            .level(vk::CommandBufferLevel::SECONDARY)
+            .command_buffer_count(1)
+            .build();
+        let command_buffer = self
+            .device
+            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
+
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .inheritance_info(
+                &vk::CommandBufferInheritanceInfo::builder()
+                    .render_pass(self.render_pass)
+                    .subpass(0)
+                    .build(),
+            )
+            .flags(
+                vk::CommandBufferUsageFlags::SIMULTANEOUS_USE
+                    | vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE,
+            )
+            .build();
+        self.device
+            .begin_command_buffer(command_buffer, &begin_info)?;
+
+        self.device.cmd_bind_pipeline(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.text_pipeline,
+        );
+        self.device.cmd_bind_vertex_buffers(
+            command_buffer,
+            0,
+            &[self.text_vertex_buffers[index].buffer],
+            &[0],
+        );
+
+        self.device.end_command_buffer(command_buffer)?;
+        Ok(command_buffer)
+    }
+
+    unsafe fn update_text_vertex_buffer(
+        &self,
+        index: usize,
+        vertices: &[Vertex2f],
+        semaphore: vk::Semaphore,
+    ) -> VkResult<()> {
+        let buf_size = (std::mem::size_of::<Vertex2f>() * vertices.len()) as vk::DeviceSize;
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            buf_size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        let data = self.device.map_memory(
+            staging_buffer_memory,
+            0,
+            buf_size,
+            vk::MemoryMapFlags::empty(),
+        )? as *mut Vertex2f;
+        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data, vertices.len());
+        self.device.unmap_memory(staging_buffer_memory);
+
+        Ok(())
+    }
+
+    unsafe fn new_transfer_command_buffer(&self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.transfer_command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1)
+            .build();
+        let cmd_buf = self
+            .device
+            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
+            .build();
+        self.device.begin_command_buffer(cmd_buf, &begin_info)?;
+
+        // self.device.cmd_copy_buffer(cmd_buf, self.text_staging_vertex_buffers[index].buffer, self.text_vertex_buffers[index].buffer, vk::BufferCopy::builder().size(size: DeviceSize))
+
+        self.device.end_command_buffer(cmd_buf);
+        Ok(cmd_buf)
     }
 
     pub fn recreate_swapchain(&mut self) -> VulkanResult<()> {
@@ -1659,33 +1761,25 @@ impl VulkanBase {
     unsafe fn copy_data_to_vertex_buffer(
         &mut self,
         vertices: &[Vertex3f],
-        vertex_buffer: Rc<VertexBuffer>,
+        index: usize,
     ) -> VulkanResult<()> {
-        let buffer_size: vk::DeviceSize =
-            (vertices.len() * std::mem::size_of::<Vertex3f>()) as vk::DeviceSize;
-        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
-            buffer_size,
+        let vertex_buffer = &self.vertex_buffers[index];
+        let mut staging_buffer = VertexBuffer::new(
+            self,
+            VERTEX_BUFFER_CAPCITY,
             vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
         )?;
-        let data = self.device.map_memory(
-            staging_buffer_memory,
-            0,
-            buffer_size as vk::DeviceSize,
-            vk::MemoryMapFlags::empty(),
-        )? as *mut Vertex3f;
-        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data, vertices.len());
-        self.device.unmap_memory(staging_buffer_memory);
+        staging_buffer.copy_data(vertices)?;
 
         self.copy_buffer(
             self.transfer_queue,
             self.transfer_command_pool,
-            staging_buffer,
+            staging_buffer.buffer,
             vertex_buffer.buffer,
-            buffer_size,
+            staging_buffer.len,
         )?;
-        self.device.destroy_buffer(staging_buffer, None);
-        self.device.free_memory(staging_buffer_memory, None);
+
         Ok(())
     }
 
@@ -2135,6 +2229,8 @@ impl Drop for VulkanBase {
             // }
 
             self.vertex_buffers.clear();
+            self.text_staging_vertex_buffers.clear();
+            self.text_vertex_buffers.clear();
 
             self.device.destroy_semaphore(self.semaphore, None);
             for i in 0..MAX_FRAMES_IN_FLIGHT {
@@ -2194,10 +2290,7 @@ impl Renderer for VulkanBase {
                 Ok((image_index, _)) => {
                     self.update_uniform_buffer(image_index as usize)?;
 
-                    self.copy_data_to_vertex_buffer(
-                        &render_data.vertices,
-                        self.vertex_buffers[image_index as usize].clone(),
-                    )?;
+                    self.copy_data_to_vertex_buffer(&render_data.vertices, image_index as usize)?;
 
                     let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
                     LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
