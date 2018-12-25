@@ -80,9 +80,37 @@ impl Drop for Face {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct GlyphMetrics {
+    pub width: ft::FT_Pos,
+    pub height: ft::FT_Pos,
+    pub hori_bearing_x: ft::FT_Pos,
+    pub hori_bearing_y: ft::FT_Pos,
+    pub hori_advance: ft::FT_Pos,
+    pub vert_bearing_x: ft::FT_Pos,
+    pub vert_bearing_y: ft::FT_Pos,
+    pub vert_advance: ft::FT_Pos,
+}
+
+impl From<ft::FT_Glyph_Metrics> for GlyphMetrics {
+    fn from(metrics: ft::FT_Glyph_Metrics) -> GlyphMetrics {
+        GlyphMetrics {
+            width: metrics.width / 64,
+            height: metrics.height / 64,
+            hori_bearing_x: metrics.horiBearingX / 64,
+            hori_bearing_y: metrics.horiBearingY / 64,
+            hori_advance: metrics.horiAdvance / 64,
+            vert_bearing_x: metrics.vertBearingX / 64,
+            vert_bearing_y: metrics.vertBearingY / 64,
+            vert_advance: metrics.vertAdvance / 64,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Glyph {
     pub bitmap: Bitmap,
+    pub metrics: GlyphMetrics,
 }
 
 impl Glyph {
@@ -90,6 +118,7 @@ impl Glyph {
         unsafe {
             Glyph {
                 bitmap: Bitmap::new((*glyph).bitmap),
+                metrics: (*glyph).metrics.into(),
             }
         }
     }

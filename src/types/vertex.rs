@@ -40,13 +40,6 @@ impl Vertex2f {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct TextVertex {
-    vertex: Vertex2f,
-    color: Color,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct Vertex3f {
     pub pos: Point3f,
     pub uv: Point2f,

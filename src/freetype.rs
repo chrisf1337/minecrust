@@ -11,8 +11,7 @@ macro_rules! ft_init {
 
 mod library;
 
-pub use self::library::Library;
-pub use self::library::LoadFlags;
+pub use self::library::{GlyphMetrics, Library, LoadFlags};
 
 #[must_use]
 pub type FtResult<T> = Result<T, FtError>;

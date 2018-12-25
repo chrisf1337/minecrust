@@ -1,9 +1,11 @@
 mod color;
+mod text;
 mod vertex;
 
 pub use crate::types::{
     color::Color,
-    vertex::{TextVertex, Vertex2f, Vertex3f},
+    text::TextVertex,
+    vertex::{Vertex2f, Vertex3f},
 };
 
 use crate::na::{
