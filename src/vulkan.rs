@@ -253,12 +253,7 @@ pub struct VulkanBase {
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     render_pass: vk::RenderPass,
 
-    graphics_pipeline: vk::Pipeline,
-    graphics_pipeline_layout: vk::PipelineLayout,
-
     glyph_metrics: HashMap<char, freetype::GlyphMetrics>,
-    text_pipeline: vk::Pipeline,
-    text_pipeline_layout: vk::PipelineLayout,
 
     graphics_command_pool: vk::CommandPool,
     graphics_command_buffers: Vec<vk::CommandBuffer>,
@@ -271,11 +266,21 @@ pub struct VulkanBase {
 
     current_frame: usize,
 
-    vertex_buffers: Vec<VertexBuffer<Vertex3f>>,
+    graphics_pipeline: vk::Pipeline,
+    graphics_pipeline_layout: vk::PipelineLayout,
+
+    graphics_staging_vertex_buffers: Vec<VertexBuffer<Vertex3f>>,
+    graphics_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
+    graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+
+    text_pipeline: vk::Pipeline,
+    text_pipeline_layout: vk::PipelineLayout,
+
     text_staging_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
-    text_transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
-    text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     text_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
+    text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+
+    text_transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     text_take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
     text_transfer_ownership_semaphores: Vec<vk::Semaphore>,
 
@@ -483,11 +488,15 @@ impl VulkanBase {
                 render_finished_semaphores: Default::default(),
                 in_flight_fences: Default::default(),
 
-                vertex_buffers: Default::default(),
+                graphics_staging_vertex_buffers: Default::default(),
+                graphics_vertex_buffers: Default::default(),
+                graphics_draw_cmd_bufs: Default::default(),
+
                 text_staging_vertex_buffers: Default::default(),
                 text_vertex_buffers: Default::default(),
-                text_transfer_cmd_bufs: Default::default(),
                 text_draw_cmd_bufs: Default::default(),
+
+                text_transfer_cmd_bufs: Default::default(),
                 text_take_ownership_cmd_buffers: Default::default(),
                 text_transfer_ownership_semaphores: Default::default(),
 
@@ -524,8 +533,6 @@ impl VulkanBase {
 
             base.graphics_command_buffers = vec![Default::default(); base.swapchain_len];
             base.transfer_command_buffers = vec![Default::default(); base.swapchain_len];
-            base.text_draw_cmd_bufs = vec![Default::default(); base.swapchain_len];
-            base.text_transfer_cmd_bufs = vec![Default::default(); base.swapchain_len];
 
             base.create_render_pass()?;
             base.create_descriptor_set_layout()?;
@@ -565,15 +572,6 @@ impl VulkanBase {
             base.textures.insert("texture".to_string(), texture);
             base.textures
                 .insert("cobblestone".to_string(), cobblestone_texture);
-
-            for _ in &base.swapchain_images {
-                base.vertex_buffers.push(VertexBuffer::new(
-                    &base,
-                    VERTEX_BUFFER_CAPCITY,
-                    vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
-                )?);
-            }
 
             base.create_uniform_buffers()?;
             base.create_descriptor_pool()?;
@@ -1067,6 +1065,7 @@ impl VulkanBase {
     unsafe fn create_command_pools(&mut self) -> VkResult<()> {
         let graphics_command_pool_ci = vk::CommandPoolCreateInfo::builder()
             .queue_family_index(self.graphics_queue_family_index)
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .build();
         self.graphics_command_pool = self
             .device
@@ -1136,62 +1135,6 @@ impl VulkanBase {
         Ok(cmd_buf)
     }
 
-    unsafe fn new_graphics_command_buffer(
-        &self,
-        index: usize,
-        n_vertices: u32,
-    ) -> VkResult<vk::CommandBuffer> {
-        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.graphics_command_pool)
-            .level(vk::CommandBufferLevel::SECONDARY)
-            .command_buffer_count(1)
-            .build();
-        let command_buffer = self
-            .device
-            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
-
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .inheritance_info(
-                &vk::CommandBufferInheritanceInfo::builder()
-                    .render_pass(self.render_pass)
-                    .subpass(0)
-                    .build(),
-            )
-            .flags(
-                vk::CommandBufferUsageFlags::SIMULTANEOUS_USE
-                    | vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE,
-            )
-            .build();
-        self.device
-            .begin_command_buffer(command_buffer, &begin_info)?;
-
-        self.device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.graphics_pipeline,
-        );
-        self.device.cmd_bind_vertex_buffers(
-            command_buffer,
-            0,
-            &[self.vertex_buffers[index].buffer],
-            &[0],
-        );
-        self.device.cmd_bind_descriptor_sets(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.graphics_pipeline_layout,
-            0,
-            &self.descriptor_sets,
-            &[],
-        );
-
-        self.device.cmd_draw(command_buffer, n_vertices, 1, 0, 0);
-
-        self.device.end_command_buffer(command_buffer)?;
-
-        Ok(command_buffer)
-    }
-
     unsafe fn create_text_take_ownership_cmd_bufs(&mut self) -> VkResult<()> {
         for index in 0..self.swapchain_len {
             let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
@@ -1220,6 +1163,21 @@ impl VulkanBase {
                     .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
                     .src_queue_family_index(self.transfer_queue_family_index)
                     .dst_queue_family_index(self.graphics_queue_family_index)
+                    .buffer(self.graphics_vertex_buffers[index].buffer)
+                    .build()],
+                &[],
+            );
+            self.device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::VERTEX_INPUT,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[vk::BufferMemoryBarrier::builder()
+                    .src_access_mask(vk::AccessFlags::empty())
+                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                    .src_queue_family_index(self.transfer_queue_family_index)
+                    .dst_queue_family_index(self.graphics_queue_family_index)
                     .buffer(self.text_vertex_buffers[index].buffer)
                     .build()],
                 &[],
@@ -1233,8 +1191,8 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn new_text_draw_command_buffer(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.text_transfer_cmd_bufs[index] {
+    unsafe fn new_text_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = if let Some(cmd_buf) = self.text_draw_cmd_bufs[index] {
             cmd_buf
         } else {
             let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
@@ -1283,13 +1241,8 @@ impl VulkanBase {
         Ok(cmd_buf)
     }
 
-    unsafe fn update_text_vertex_buffer(
-        &mut self,
-        index: usize,
-        vertices: &[TextVertex],
-    ) -> VkResult<()> {
+    unsafe fn update_text_vertex_buffer(&mut self, index: usize, vertices: &[TextVertex]) {
         self.text_staging_vertex_buffers[index].copy_data(vertices);
-        Ok(())
     }
 
     unsafe fn new_text_transfer_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
@@ -1312,12 +1265,37 @@ impl VulkanBase {
 
         self.device.cmd_copy_buffer(
             cmd_buf,
+            self.graphics_staging_vertex_buffers[index].buffer,
+            self.graphics_vertex_buffers[index].buffer,
+            // FIXME: need to change this when buf_len increases
+            &[vk::BufferCopy::builder()
+                .size(self.graphics_staging_vertex_buffers[index].buf_len)
+                .build()],
+        );
+        self.device.cmd_copy_buffer(
+            cmd_buf,
             self.text_staging_vertex_buffers[index].buffer,
             self.text_vertex_buffers[index].buffer,
             // FIXME: need to change this when buf_len increases
             &[vk::BufferCopy::builder()
                 .size(self.text_staging_vertex_buffers[index].buf_len)
                 .build()],
+        );
+
+        self.device.cmd_pipeline_barrier(
+            cmd_buf,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[vk::BufferMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .dst_access_mask(vk::AccessFlags::empty())
+                .src_queue_family_index(self.transfer_queue_family_index)
+                .dst_queue_family_index(self.graphics_queue_family_index)
+                .buffer(self.graphics_vertex_buffers[index].buffer)
+                .build()],
+            &[],
         );
         self.device.cmd_pipeline_barrier(
             cmd_buf,
@@ -1351,6 +1329,22 @@ impl VulkanBase {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             )?;
             staging_buf.map()?;
+            self.graphics_staging_vertex_buffers.push(staging_buf);
+
+            self.graphics_vertex_buffers.push(VertexBuffer::new(
+                self,
+                VERTEX_BUFFER_CAPCITY,
+                vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )?);
+
+            let mut staging_buf = VertexBuffer::new(
+                self,
+                VERTEX_BUFFER_CAPCITY,
+                vk::BufferUsageFlags::TRANSFER_SRC,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            staging_buf.map()?;
             self.text_staging_vertex_buffers.push(staging_buf);
 
             self.text_vertex_buffers.push(VertexBuffer::new(
@@ -1361,6 +1355,10 @@ impl VulkanBase {
             )?);
         }
 
+        self.graphics_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        self.text_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
+
+        self.text_transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.create_text_take_ownership_cmd_bufs()?;
 
         Ok(())
@@ -1393,6 +1391,72 @@ impl VulkanBase {
 
             Ok(())
         }
+    }
+
+    unsafe fn new_graphics_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = if let Some(cmd_buf) = self.graphics_draw_cmd_bufs[index] {
+            cmd_buf
+        } else {
+            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(self.graphics_command_pool)
+                .level(vk::CommandBufferLevel::SECONDARY)
+                .command_buffer_count(1)
+                .build();
+            self.device
+                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
+        };
+
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .inheritance_info(
+                &vk::CommandBufferInheritanceInfo::builder()
+                    .render_pass(self.render_pass)
+                    .subpass(0)
+                    .build(),
+            )
+            .flags(
+                vk::CommandBufferUsageFlags::SIMULTANEOUS_USE
+                    | vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE,
+            )
+            .build();
+        self.device.begin_command_buffer(cmd_buf, &begin_info)?;
+
+        self.device.cmd_bind_pipeline(
+            cmd_buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.graphics_pipeline,
+        );
+        self.device.cmd_bind_vertex_buffers(
+            cmd_buf,
+            0,
+            &[self.graphics_vertex_buffers[index].buffer],
+            &[0],
+        );
+        self.device.cmd_bind_descriptor_sets(
+            cmd_buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.graphics_pipeline_layout,
+            0,
+            &self.descriptor_sets,
+            &[],
+        );
+
+        self.device.cmd_draw(
+            cmd_buf,
+            self.graphics_staging_vertex_buffers[index].len as u32,
+            1,
+            0,
+            0,
+        );
+
+        self.device.end_command_buffer(cmd_buf)?;
+
+        self.graphics_draw_cmd_bufs[index] = Some(cmd_buf);
+
+        Ok(cmd_buf)
+    }
+
+    unsafe fn update_graphics_vertex_buffer(&mut self, index: usize, vertices: &[Vertex3f]) {
+        self.graphics_staging_vertex_buffers[index].copy_data(vertices);
     }
 
     unsafe fn create_buffer(
@@ -1883,35 +1947,6 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn copy_data_to_vertex_buffer(
-        &mut self,
-        vertices: &[Vertex3f],
-        index: usize,
-    ) -> VulkanResult<()> {
-        let vertex_buffer = &self.vertex_buffers[index];
-        let mut staging_buffer = VertexBuffer::new(
-            self,
-            VERTEX_BUFFER_CAPCITY,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        )?;
-        staging_buffer.map()?;
-        staging_buffer.copy_data(vertices);
-        staging_buffer.unmap();
-
-        self.copy_buffer(
-            self.transfer_queue,
-            self.transfer_command_pool,
-            staging_buffer.buffer,
-            vertex_buffer.buffer,
-            staging_buffer.buf_len,
-        )?;
-
-        staging_buffer.deinit();
-
-        Ok(())
-    }
-
     unsafe fn create_uniform_buffers(&mut self) -> VkResult<()> {
         let buffer_size = std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize;
         for _ in 0..self.swapchain_len {
@@ -1949,21 +1984,6 @@ impl VulkanBase {
                 .push(self.device.create_fence(&fence_ci, None)?);
         }
         Ok(())
-    }
-
-    unsafe fn copy_buffer(
-        &self,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
-        src: vk::Buffer,
-        dst: vk::Buffer,
-        size: vk::DeviceSize,
-    ) -> VulkanResult<()> {
-        let command_buffer = self.begin_single_time_commands(command_pool)?;
-        let copy_region = vk::BufferCopy::builder().size(size).build();
-        self.device
-            .cmd_copy_buffer(command_buffer, src, dst, &[copy_region]);
-        self.end_single_time_commands(queue, command_pool, command_buffer)
     }
 
     unsafe fn create_shader_module_from_file<P: AsRef<Path>>(
@@ -2259,46 +2279,6 @@ impl VulkanBase {
         )
     }
 
-    unsafe fn begin_single_time_commands(
-        &self,
-        command_pool: vk::CommandPool,
-    ) -> VulkanResult<vk::CommandBuffer> {
-        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_pool(command_pool)
-            .command_buffer_count(1)
-            .build();
-        let command_buffer = self
-            .device
-            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-            .build();
-        self.device
-            .begin_command_buffer(command_buffer, &command_buffer_begin_info)?;
-        Ok(command_buffer)
-    }
-
-    unsafe fn end_single_time_commands(
-        &self,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
-        command_buffer: vk::CommandBuffer,
-    ) -> VulkanResult<()> {
-        self.device.end_command_buffer(command_buffer)?;
-        let submit_info = vk::SubmitInfo::builder()
-            .command_buffers(&[command_buffer])
-            .build();
-        let fence_ci = vk::FenceCreateInfo::builder().build();
-        let fence = self.device.create_fence(&fence_ci, None)?;
-        self.device.queue_submit(queue, &[submit_info], fence)?;
-        self.device.wait_for_fences(&[fence], true, std::u64::MAX)?;
-        self.device
-            .free_command_buffers(command_pool, &[command_buffer]);
-        self.device.destroy_fence(fence, None);
-        Ok(())
-    }
-
     unsafe fn clean_up_swapchain(&mut self) {
         self.device.destroy_image_view(self.color_image_view, None);
         self.device.destroy_image(self.color_image, None);
@@ -2358,21 +2338,18 @@ impl Drop for VulkanBase {
                 self.device.free_memory(uniform_buffer_memory, None);
             }
 
-            for buf in &mut self.vertex_buffers {
-                buf.deinit();
-            }
             for buf in &mut self.text_staging_vertex_buffers {
                 buf.deinit();
             }
             for buf in &mut self.text_vertex_buffers {
                 buf.deinit();
             }
-            // for buf in &self.text_transfer_cmd_bufs {
-            //     buf.deinit();
-            // }
-            // for buf in &self.text_draw_cmd_bufs {
-            //     buf.deinit();
-            // }
+            for buf in &mut self.graphics_staging_vertex_buffers {
+                buf.deinit();
+            }
+            for buf in &mut self.graphics_vertex_buffers {
+                buf.deinit();
+            }
 
             self.device.destroy_semaphore(self.semaphore, None);
 
@@ -2439,8 +2416,6 @@ impl Renderer for VulkanBase {
                     let image_index = image_index as usize;
                     self.update_uniform_buffer(image_index)?;
 
-                    self.copy_data_to_vertex_buffer(&render_data.vertices, image_index)?;
-
                     let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
                     LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
                     let command_buffer = OneTimeCommandBuffer::new(
@@ -2456,6 +2431,9 @@ impl Renderer for VulkanBase {
                         &data,
                     );
                     command_buffer.submit(&[self.semaphore])?;
+
+                    // graphics
+                    self.update_graphics_vertex_buffer(image_index, &render_data.vertices);
 
                     // text
                     self.update_text_vertex_buffer(
@@ -2480,10 +2458,11 @@ impl Renderer for VulkanBase {
                                 Color::new(1.0, 0.0, 0.0),
                             ),
                         ],
-                    )?;
+                    );
 
                     let text_transfer_cmd_buf = self.new_text_transfer_cmd_buf(image_index)?;
-                    let text_draw_cmd_buf = self.new_text_draw_command_buffer(image_index)?;
+                    let text_draw_cmd_buf = self.new_text_draw_cmd_buf(image_index)?;
+                    let graphics_draw_cmd_buf = self.new_graphics_draw_cmd_buf(image_index)?;
 
                     self.device.queue_submit(
                         self.transfer_queue,
@@ -2507,10 +2486,6 @@ impl Renderer for VulkanBase {
                         vk::Fence::null(),
                     )?;
 
-                    self.graphics_command_buffers[image_index] = self.new_graphics_command_buffer(
-                        image_index,
-                        render_data.vertices.len() as u32,
-                    )?;
                     let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
 
                     // Start render pass
@@ -2525,10 +2500,7 @@ impl Renderer for VulkanBase {
                         ])
                         .command_buffers(&[self.new_render_pass_command_buffer(
                             image_index,
-                            &[
-                                self.graphics_command_buffers[image_index],
-                                text_draw_cmd_buf,
-                            ],
+                            &[graphics_draw_cmd_buf, text_draw_cmd_buf],
                         )?])
                         .signal_semaphores(&signal_semaphores)
                         .build();
