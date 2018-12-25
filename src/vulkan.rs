@@ -77,24 +77,19 @@ impl Default for UniformBufferObject {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 struct UniformPushConstants {
-    pub view_mat: Matrix4f,
-    pub proj_mat: Matrix4f,
+    pub proj_view: Matrix4f,
 }
 
 impl UniformPushConstants {
     fn to_vec(&self) -> Vec<f32> {
-        let mut v = vec![];
-        v.extend(self.view_mat.as_slice());
-        v.extend(self.proj_mat.as_slice());
-        v
+        self.proj_view.as_slice().to_vec()
     }
 }
 
 impl Default for UniformPushConstants {
     fn default() -> Self {
         UniformPushConstants {
-            view_mat: Matrix4f::identity(),
-            proj_mat: Matrix4f::identity(),
+            proj_view: Matrix4f::identity(),
         }
     }
 }
@@ -280,9 +275,9 @@ pub struct VulkanBase {
     text_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
     text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
-    text_transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
-    text_take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
-    text_transfer_ownership_semaphores: Vec<vk::Semaphore>,
+    transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
+    transfer_ownership_semaphores: Vec<vk::Semaphore>,
 
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
@@ -305,6 +300,8 @@ pub struct VulkanBase {
 
     start_time: SystemTime,
 
+    view_mat: Matrix4f,
+    proj_mat: Matrix4f,
     uniform_push_constants: UniformPushConstants,
 
     semaphore: vk::Semaphore,
@@ -496,9 +493,9 @@ impl VulkanBase {
                 text_vertex_buffers: Default::default(),
                 text_draw_cmd_bufs: Default::default(),
 
-                text_transfer_cmd_bufs: Default::default(),
-                text_take_ownership_cmd_buffers: Default::default(),
-                text_transfer_ownership_semaphores: Default::default(),
+                transfer_cmd_bufs: Default::default(),
+                take_ownership_cmd_buffers: Default::default(),
+                transfer_ownership_semaphores: Default::default(),
 
                 uniform_buffers: Default::default(),
                 uniform_buffers_memory: Default::default(),
@@ -523,7 +520,11 @@ impl VulkanBase {
 
                 semaphore,
 
-                uniform_push_constants: UniformPushConstants { view_mat, proj_mat },
+                view_mat,
+                proj_mat,
+                uniform_push_constants: UniformPushConstants {
+                    proj_view: proj_mat * view_mat,
+                },
             };
 
             base.msaa_samples = base.get_max_usable_sample_count();
@@ -1185,7 +1186,7 @@ impl VulkanBase {
 
             self.device.end_command_buffer(command_buffer)?;
 
-            self.text_take_ownership_cmd_buffers.push(command_buffer);
+            self.take_ownership_cmd_buffers.push(command_buffer);
         }
 
         Ok(())
@@ -1246,7 +1247,7 @@ impl VulkanBase {
     }
 
     unsafe fn new_text_transfer_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.text_transfer_cmd_bufs[index] {
+        let cmd_buf = if let Some(cmd_buf) = self.transfer_cmd_bufs[index] {
             cmd_buf
         } else {
             let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
@@ -1315,7 +1316,7 @@ impl VulkanBase {
 
         self.device.end_command_buffer(cmd_buf)?;
 
-        self.text_transfer_cmd_bufs.push(Some(cmd_buf));
+        self.transfer_cmd_bufs.push(Some(cmd_buf));
 
         Ok(cmd_buf)
     }
@@ -1358,7 +1359,7 @@ impl VulkanBase {
         self.graphics_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.text_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
-        self.text_transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        self.transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.create_text_take_ownership_cmd_bufs()?;
 
         Ok(())
@@ -1392,7 +1393,7 @@ impl VulkanBase {
 
             let mut flip_mat = Matrix4f::from_diagonal(&Vector4f::new(1.0, -1.0, 0.5, 1.0));
             flip_mat[(2, 3)] = 0.5;
-            self.uniform_push_constants.proj_mat = flip_mat
+            self.proj_mat = flip_mat
                 * Perspective3::new(
                     width as f32 / height as f32,
                     f32::to_radians(45.0),
@@ -1400,6 +1401,9 @@ impl VulkanBase {
                     100.0,
                 )
                 .to_homogeneous();
+            self.uniform_push_constants = UniformPushConstants {
+                proj_view: self.proj_mat * self.view_mat,
+            };
 
             Ok(())
         }
@@ -1983,7 +1987,7 @@ impl VulkanBase {
         self.in_flight_fences = vec![];
 
         for _ in 0..self.swapchain_len {
-            self.text_transfer_ownership_semaphores
+            self.transfer_ownership_semaphores
                 .push(self.device.create_semaphore(&semaphore_ci, None)?);
         }
 
@@ -2367,7 +2371,7 @@ impl Drop for VulkanBase {
 
             for i in 0..self.swapchain_len {
                 self.device
-                    .destroy_semaphore(self.text_transfer_ownership_semaphores[i], None);
+                    .destroy_semaphore(self.transfer_ownership_semaphores[i], None);
             }
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
@@ -2410,7 +2414,10 @@ impl Renderer for VulkanBase {
                 std::u64::MAX,
             )?;
 
-            self.uniform_push_constants.view_mat = game_state.camera.to_matrix();
+            self.view_mat = game_state.camera.to_matrix();
+            self.uniform_push_constants = UniformPushConstants {
+                proj_view: self.proj_mat * self.view_mat,
+            };
 
             if resized {
                 self.recreate_swapchain()?;
@@ -2480,19 +2487,15 @@ impl Renderer for VulkanBase {
                         self.transfer_queue,
                         &[vk::SubmitInfo::builder()
                             .command_buffers(&[text_transfer_cmd_buf])
-                            .signal_semaphores(&[
-                                self.text_transfer_ownership_semaphores[image_index]
-                            ])
+                            .signal_semaphores(&[self.transfer_ownership_semaphores[image_index]])
                             .build()],
                         vk::Fence::null(),
                     )?;
                     self.device.queue_submit(
                         self.graphics_queue,
                         &[vk::SubmitInfo::builder()
-                            .command_buffers(&[self.text_take_ownership_cmd_buffers[image_index]])
-                            .wait_semaphores(
-                                &[self.text_transfer_ownership_semaphores[image_index]],
-                            )
+                            .command_buffers(&[self.take_ownership_cmd_buffers[image_index]])
+                            .wait_semaphores(&[self.transfer_ownership_semaphores[image_index]])
                             .wait_dst_stage_mask(&[vk::PipelineStageFlags::VERTEX_INPUT])
                             .build()],
                         vk::Fence::null(),

@@ -9,7 +9,8 @@ pub use crate::types::{
 };
 
 use crate::na::{
-    Matrix4, Point2, Point3, Quaternion, Rotation3, Transform3, UnitQuaternion, Vector3, Vector4,
+    Isometry3, Matrix4, Point2, Point3, Quaternion, Rotation3, Transform3, UnitQuaternion, Vector3,
+    Vector4,
 };
 use ash::vk;
 
@@ -22,6 +23,7 @@ pub type Quaternionf = Quaternion<f32>;
 pub type UnitQuaternionf = UnitQuaternion<f32>;
 pub type Transform3f = Transform3<f32>;
 pub type Rotation3f = Rotation3<f32>;
+pub type Isometry3f = Isometry3<f32>;
 
 pub struct Vecf(pub Vec<f32>);
 
