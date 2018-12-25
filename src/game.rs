@@ -81,7 +81,7 @@ impl<'a, 'b> Game<'a, 'b> {
         world
             .create_entity()
             .with(TransformComponent::new(
-                Translation3::from_vector(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
+                Translation3::from(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
             .build();
@@ -95,7 +95,7 @@ impl<'a, 'b> Game<'a, 'b> {
         let cube3 = world
             .create_entity()
             .with(TransformComponent::new(
-                Translation3::from_vector(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
+                Translation3::from(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
@@ -103,7 +103,7 @@ impl<'a, 'b> Game<'a, 'b> {
         world
             .create_entity()
             .with(TransformComponent::new(
-                Translation3::from_vector(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
+                Translation3::from(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();

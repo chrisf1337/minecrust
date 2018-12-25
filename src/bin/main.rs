@@ -2,23 +2,9 @@
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
 
-use nalgebra as na;
-
-use crate::na::{Perspective3, Rotation3, Translation3};
-use alga::general::SubsetOf;
-use failure::{err_msg, Error};
+use failure::Error;
 use failure_derive::Fail;
 use minecrust::game::Game;
-use specs::prelude::*;
-use std::{
-    collections::HashSet,
-    f32::consts::FRAC_PI_2,
-    ffi::{CStr, CString},
-    ops::DerefMut,
-    os::raw::*,
-    ptr,
-    time::{Duration, SystemTime},
-};
 
 #[derive(Fail, Debug)]
 enum MainError {

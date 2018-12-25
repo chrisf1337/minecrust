@@ -1385,9 +1385,21 @@ impl VulkanBase {
 
             self.create_render_pass()?;
             self.create_graphics_pipeline()?;
+            self.create_text_pipeline()?;
             self.create_color_resources()?;
             self.create_depth_resources()?;
             self.create_framebuffers()?;
+
+            let mut flip_mat = Matrix4f::from_diagonal(&Vector4f::new(1.0, -1.0, 0.5, 1.0));
+            flip_mat[(2, 3)] = 0.5;
+            self.uniform_push_constants.proj_mat = flip_mat
+                * Perspective3::new(
+                    width as f32 / height as f32,
+                    f32::to_radians(45.0),
+                    0.1,
+                    100.0,
+                )
+                .to_homogeneous();
 
             Ok(())
         }
