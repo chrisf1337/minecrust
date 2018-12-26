@@ -5,7 +5,7 @@ use ash::vk;
 #[derive(Debug, Copy, Clone)]
 pub struct TextVertex {
     char_idx: usize,
-    vertex: Point2f,
+    pub vertex: Point2f,
     uv: Point2f,
     color: Color,
 }

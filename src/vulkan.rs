@@ -9,7 +9,7 @@ use crate::{
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
     types::*,
-    utils::{clamp, NSEC_PER_SEC},
+    utils::{clamp, mat4f, NSEC_PER_SEC},
     vulkan::{
         buffer::Buffer,
         error::{VulkanError, VulkanResult},
@@ -77,7 +77,15 @@ impl Default for UniformBufferObject {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct UiUniforms {
-    pub ortho_mat: Matrix4f,
+    pub screen_space_normalize_mat: Matrix4f,
+}
+
+impl UiUniforms {
+    fn new(screen_space_normalize_mat: Matrix4f) -> UiUniforms {
+        UiUniforms {
+            screen_space_normalize_mat,
+        }
+    }
 }
 
 #[repr(C)]
@@ -289,10 +297,10 @@ pub struct VulkanBase {
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
 
     ui_uniform_buffers: Vec<Buffer<UiUniforms>>,
-
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    ui_descriptor_sets: Vec<vk::DescriptorSet>,
     ui_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
 
     textures: HashMap<String, Texture>,
@@ -312,6 +320,7 @@ pub struct VulkanBase {
 
     view_mat: Matrix4f,
     proj_mat: Matrix4f,
+    screen_space_normalize_mat: Matrix4f,
     uniform_push_constants: UniformPushConstants,
 
     semaphore: vk::Semaphore,
@@ -448,8 +457,18 @@ impl VulkanBase {
                 )
                 .to_homogeneous();
 
+            let mut screen_space_normalize_mat = Matrix3f::new_nonuniform_scaling(&Vector2f::new(
+                1.0 / (screen_width as f32 / 2.0),
+                1.0 / (screen_height as f32 / 2.0),
+            ));
+            screen_space_normalize_mat[(0, 2)] = -1.0;
+            screen_space_normalize_mat[(1, 2)] = -1.0;
+            let screen_space_normalize_mat = mat4f::from_mat3f(screen_space_normalize_mat);
+
             let semaphore_ci = vk::SemaphoreCreateInfo::default();
             let semaphore = device.create_semaphore(&semaphore_ci, None)?;
+
+            let limits = instance.get_physical_device_properties(physical_device);
 
             let mut base = VulkanBase {
                 current_frame: 0,
@@ -513,6 +532,7 @@ impl VulkanBase {
                 descriptor_pool: Default::default(),
                 descriptor_sets: Default::default(),
                 descriptor_set_layouts: Default::default(),
+                ui_descriptor_sets: Default::default(),
                 ui_descriptor_set_layouts: Default::default(),
 
                 textures: HashMap::default(),
@@ -534,6 +554,7 @@ impl VulkanBase {
 
                 view_mat,
                 proj_mat,
+                screen_space_normalize_mat,
                 uniform_push_constants: UniformPushConstants {
                     proj_view: proj_mat * view_mat,
                 },
@@ -584,11 +605,11 @@ impl VulkanBase {
                 .insert("cobblestone".to_string(), cobblestone_texture);
 
             base.create_uniform_buffers()?;
+            base.create_buffers()?;
+
             base.create_descriptor_pool()?;
             base.create_descriptor_sets()?;
             base.create_sync_objects()?;
-
-            base.create_ui_buffers()?;
 
             Ok(base)
         }
@@ -787,13 +808,13 @@ impl VulkanBase {
             .size(std::mem::size_of::<UniformPushConstants>() as u32)
             .offset(0)
             .build();
-        let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.descriptor_set_layouts)
+        let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(&self.ui_descriptor_set_layouts)
             .push_constant_ranges(&[push_constant_range])
             .build();
         let pipeline_layout = self
             .device
-            .create_pipeline_layout(&graphics_pipeline_layout_ci, None)?;
+            .create_pipeline_layout(&pipeline_layout_ci, None)?;
 
         let pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
             .stages(&shader_stages)
@@ -804,7 +825,7 @@ impl VulkanBase {
             .multisample_state(&multisample_state_ci)
             .color_blend_state(&color_blend_state_ci)
             .depth_stencil_state(&depth_stencil_state_ci)
-            .layout(self.graphics_pipeline_layout)
+            .layout(pipeline_layout)
             .render_pass(self.render_pass)
             .subpass(0)
             .build();
@@ -942,6 +963,23 @@ impl VulkanBase {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
+        let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .immutable_samplers(&[self.texture_sampler])
+            .build();
+        let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
+            .bindings(&[ui_uniforms_layout_binding, sampler_layout_binding])
+            .build();
+
+        for _ in &self.swapchain_images {
+            self.ui_descriptor_set_layouts.push(
+                self.device
+                    .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
+            );
+        }
 
         Ok(())
     }
@@ -1240,6 +1278,15 @@ impl VulkanBase {
             &[self.ui_vertex_buffers[index].buffer],
             &[0],
         );
+        self.device.cmd_bind_descriptor_sets(
+            cmd_buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.ui_pipeline_layout,
+            0,
+            &self.ui_descriptor_sets,
+            &[],
+        );
+
         self.device.cmd_draw(
             cmd_buf,
             self.ui_staging_vertex_buffers[index].len as u32,
@@ -1255,11 +1302,16 @@ impl VulkanBase {
         Ok(cmd_buf)
     }
 
-    unsafe fn update_ui_vertex_buffer(&mut self, index: usize, vertices: &[TextVertex]) {
-        self.ui_staging_vertex_buffers[index].copy_data(vertices);
+    unsafe fn update_ui_vertex_buffer(
+        &mut self,
+        index: usize,
+        vertices: &[TextVertex],
+    ) -> VkResult<()> {
+        self.ui_staging_vertex_buffers[index].copy_data(vertices)?;
+        Ok(())
     }
 
-    unsafe fn new_ui_transfer_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+    unsafe fn new_transfer_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
         let cmd_buf = if let Some(cmd_buf) = self.transfer_cmd_bufs[index] {
             cmd_buf
         } else {
@@ -1332,7 +1384,7 @@ impl VulkanBase {
         Ok(cmd_buf)
     }
 
-    unsafe fn create_ui_buffers(&mut self) -> VkResult<()> {
+    unsafe fn create_buffers(&mut self) -> VkResult<()> {
         self.graphics_command_buffers = vec![Default::default(); self.swapchain_len];
         self.transfer_command_buffers = vec![Default::default(); self.swapchain_len];
         self.render_pass_cmd_bufs = vec![Default::default(); self.swapchain_len];
@@ -1369,6 +1421,15 @@ impl VulkanBase {
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
+
+            let mut uniform_buf = Buffer::new(
+                self,
+                std::mem::size_of::<UiUniforms>() as vk::DeviceSize,
+                vk::BufferUsageFlags::UNIFORM_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            uniform_buf.map()?;
+            self.ui_uniform_buffers.push(uniform_buf);
         }
 
         self.graphics_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
@@ -1396,8 +1457,11 @@ impl VulkanBase {
         unsafe {
             self.device.device_wait_idle()?;
             self.clean_up_swapchain();
-            let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
-            self.create_swapchain(width as u32, height as u32)?;
+            let LogicalSize {
+                width: screen_width,
+                height: screen_height,
+            } = self.window.get_inner_size().unwrap();
+            self.create_swapchain(screen_width as u32, screen_height as u32)?;
 
             self.create_render_pass()?;
             self.create_graphics_pipeline()?;
@@ -1410,12 +1474,22 @@ impl VulkanBase {
             flip_mat[(2, 3)] = 0.5;
             self.proj_mat = flip_mat
                 * Perspective3::new(
-                    width as f32 / height as f32,
+                    screen_width as f32 / screen_height as f32,
                     f32::to_radians(45.0),
                     0.1,
                     100.0,
                 )
                 .to_homogeneous();
+
+            let mut screen_space_normalize_mat = Matrix3f::new_nonuniform_scaling(&Vector2f::new(
+                1.0 / (screen_width as f32 / 2.0),
+                1.0 / (screen_height as f32 / 2.0),
+            ));
+            screen_space_normalize_mat[(0, 2)] = -1.0;
+            screen_space_normalize_mat[(1, 2)] = -1.0;
+
+            self.screen_space_normalize_mat = mat4f::from_mat3f(screen_space_normalize_mat);
+
             self.uniform_push_constants = UniformPushConstants {
                 proj_view: self.proj_mat * self.view_mat,
             };
@@ -1483,8 +1557,13 @@ impl VulkanBase {
         Ok(cmd_buf)
     }
 
-    unsafe fn update_graphics_vertex_buffer(&mut self, index: usize, vertices: &[Vertex3f]) {
-        self.graphics_staging_vertex_buffers[index].copy_data(vertices);
+    unsafe fn update_graphics_vertex_buffer(
+        &mut self,
+        index: usize,
+        vertices: &[Vertex3f],
+    ) -> VkResult<()> {
+        self.graphics_staging_vertex_buffers[index].copy_data(vertices)?;
+        Ok(())
     }
 
     unsafe fn create_buffer(
@@ -2115,10 +2194,16 @@ impl VulkanBase {
         Ok(())
     }
 
+    unsafe fn update_ui_uniform_buffer(&mut self, index: usize) -> VkResult<()> {
+        let uniform_buf = &mut self.ui_uniform_buffers[index];
+        uniform_buf.copy_data(&[UiUniforms::new(self.screen_space_normalize_mat)])?;
+        Ok(())
+    }
+
     unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
         let uniforms_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count((self.swapchain_len * 2) as u32)
+            .descriptor_count((self.swapchain_len * 3) as u32)
             .build();
         let sampler_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLER)
@@ -2196,6 +2281,44 @@ impl VulkanBase {
                 &[],
             );
         }
+
+        self.ui_descriptor_sets = self.device.allocate_descriptor_sets(
+            &vk::DescriptorSetAllocateInfo::builder()
+                .descriptor_pool(self.descriptor_pool)
+                .set_layouts(&self.ui_descriptor_set_layouts)
+                .build(),
+        )?;
+        for (i, &ds) in self.ui_descriptor_sets.iter().enumerate() {
+            let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+                .buffer(self.ui_uniform_buffers[i].buffer)
+                .offset(0)
+                .range(std::mem::size_of::<UiUniforms>() as vk::DeviceSize)
+                .build();
+            let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(ds)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&[descriptor_buffer_info])
+                .build();
+
+            let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .sampler(self.texture_sampler)
+                .build();
+            let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(ds)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .image_info(&[sampler_descriptor_image_info])
+                .build();
+
+            self.device.update_descriptor_sets(
+                &[buffer_write_descriptor_set, sampler_write_descriptor_set],
+                &[],
+            );
+        }
+
         Ok(())
     }
 
@@ -2359,6 +2482,11 @@ impl Drop for VulkanBase {
                 self.device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
+            for &descriptor_set_layout in &self.ui_descriptor_set_layouts {
+                self.device
+                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
+            }
+
             for &uniform_buffer in &self.uniform_buffers {
                 self.device.destroy_buffer(uniform_buffer, None);
             }
@@ -2376,6 +2504,9 @@ impl Drop for VulkanBase {
                 buf.deinit();
             }
             for buf in &mut self.graphics_vertex_buffers {
+                buf.deinit();
+            }
+            for buf in &mut self.ui_uniform_buffers {
                 buf.deinit();
             }
 
@@ -2446,6 +2577,7 @@ impl Renderer for VulkanBase {
                 Ok((image_index, _)) => {
                     let image_index = image_index as usize;
                     self.update_uniform_buffer(image_index)?;
+                    self.update_ui_uniform_buffer(image_index)?;
 
                     let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
                     LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
@@ -2464,7 +2596,7 @@ impl Renderer for VulkanBase {
                     command_buffer.submit(&[self.semaphore])?;
 
                     // graphics
-                    self.update_graphics_vertex_buffer(image_index, &render_data.vertices);
+                    self.update_graphics_vertex_buffer(image_index, &render_data.vertices)?;
 
                     // text
                     self.update_ui_vertex_buffer(
@@ -2472,33 +2604,33 @@ impl Renderer for VulkanBase {
                         &[
                             TextVertex::new(
                                 0,
-                                Point2f::new(-0.5, -0.5),
+                                Point2f::new(10.0, 10.0),
                                 Point2f::new(0.0, 0.0),
                                 Color::new(1.0, 0.0, 0.0),
                             ),
                             TextVertex::new(
                                 0,
-                                Point2f::new(-0.5, 0.5),
+                                Point2f::new(10.0, 100.0),
                                 Point2f::new(0.0, 0.0),
-                                Color::new(1.0, 0.0, 0.0),
+                                Color::new(0.0, 1.0, 0.0),
                             ),
                             TextVertex::new(
                                 0,
-                                Point2f::new(0.5, -0.5),
+                                Point2f::new(100.0, 10.0),
                                 Point2f::new(0.0, 0.0),
-                                Color::new(1.0, 0.0, 0.0),
+                                Color::new(0.0, 0.0, 1.0),
                             ),
                         ],
-                    );
+                    )?;
 
-                    let ui_transfer_cmd_buf = self.new_ui_transfer_cmd_buf(image_index)?;
+                    let transfer_cmd_buf = self.new_transfer_cmd_buf(image_index)?;
                     let ui_draw_cmd_buf = self.new_ui_draw_cmd_buf(image_index)?;
                     let graphics_draw_cmd_buf = self.new_graphics_draw_cmd_buf(image_index)?;
 
                     self.device.queue_submit(
                         self.transfer_queue,
                         &[vk::SubmitInfo::builder()
-                            .command_buffers(&[ui_transfer_cmd_buf])
+                            .command_buffers(&[transfer_cmd_buf])
                             .signal_semaphores(&[self.transfer_ownership_semaphores[image_index]])
                             .build()],
                         vk::Fence::null(),

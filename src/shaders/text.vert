@@ -9,14 +9,13 @@ layout (location = 3) in vec4 inColor;
 layout (location = 0) out vec2 outUv;
 layout (location = 1) out vec4 outColor;
 
-// layout (push_constant) uniform PushConsts {
-//     mat4 view_mat;
-//     mat4 proj_mat;
-// } pushConsts;
+layout (binding = 0) uniform Uniforms {
+    mat4 screen_space_normalize_mat;
+} uniforms;
 
 void main() {
-    // gl_Position = pushConsts.proj_mat * pushConsts.view_mat * vec4(inPosition, 0.0, 1.0);
-    gl_Position = vec4(inPos, 0.0, 1.0);
+    gl_Position = vec4((mat3(uniforms.screen_space_normalize_mat) * vec3(inPos, 1.0)).xy, 0.0, 1.0);
+    // gl_Position = vec4(inPos, 0.0, 1.0);
     outUv = inUv;
     outColor = inColor;
 }

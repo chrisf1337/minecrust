@@ -1,4 +1,5 @@
 pub mod f32;
+pub mod mat3f;
 pub mod mat4f;
 pub mod pt3f;
 pub mod quat4f;

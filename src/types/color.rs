@@ -28,4 +28,8 @@ impl Color {
     pub fn a(&self) -> f32 {
         self.0.w
     }
+
+    pub fn as_slice(&self) -> &[f32] {
+        self.0.as_slice()
+    }
 }

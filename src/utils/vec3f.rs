@@ -2,7 +2,7 @@ use crate::types::*;
 use crate::utils::f32;
 use std::f32::consts::PI;
 
-pub fn from_vec4f(v: &Vector4f) -> Vector3f {
+pub fn from_vec4f(v: Vector4f) -> Vector3f {
     Vector3f::new(v.x, v.y, v.z)
 }
 
