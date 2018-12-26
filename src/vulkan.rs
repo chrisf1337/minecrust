@@ -75,6 +75,12 @@ impl Default for UniformBufferObject {
 }
 
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct UiUniforms {
+    pub ortho_mat: Matrix4f,
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 struct UniformPushConstants {
     pub proj_view: Matrix4f,
@@ -245,7 +251,6 @@ pub struct VulkanBase {
     swapchain_framebuffers: Vec<vk::Framebuffer>,
     swapchain_len: usize,
 
-    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     render_pass: vk::RenderPass,
 
     glyph_metrics: HashMap<char, freetype::GlyphMetrics>,
@@ -275,6 +280,7 @@ pub struct VulkanBase {
     ui_vertex_buffers: Vec<Buffer<TextVertex>>,
     ui_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
+    render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
     transfer_ownership_semaphores: Vec<vk::Semaphore>,
@@ -282,8 +288,12 @@ pub struct VulkanBase {
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
 
+    ui_uniform_buffers: Vec<Buffer<UiUniforms>>,
+
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    ui_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
 
     textures: HashMap<String, Texture>,
     texture_sampler: vk::Sampler,
@@ -467,8 +477,6 @@ impl VulkanBase {
                 swapchain_framebuffers: Default::default(),
                 swapchain_len: 0,
 
-                descriptor_set_layouts: Default::default(),
-
                 graphics_pipeline_layout: Default::default(),
                 graphics_pipeline: Default::default(),
                 ui_pipeline_layout: Default::default(),
@@ -493,15 +501,19 @@ impl VulkanBase {
                 ui_vertex_buffers: Default::default(),
                 ui_draw_cmd_bufs: Default::default(),
 
+                render_pass_cmd_bufs: Default::default(),
                 transfer_cmd_bufs: Default::default(),
                 take_ownership_cmd_buffers: Default::default(),
                 transfer_ownership_semaphores: Default::default(),
 
                 uniform_buffers: Default::default(),
                 uniform_buffers_memory: Default::default(),
+                ui_uniform_buffers: Default::default(),
 
                 descriptor_pool: Default::default(),
                 descriptor_sets: Default::default(),
+                descriptor_set_layouts: Default::default(),
+                ui_descriptor_set_layouts: Default::default(),
 
                 textures: HashMap::default(),
                 texture_sampler: Default::default(),
@@ -532,11 +544,8 @@ impl VulkanBase {
 
             base.create_swapchain(screen_width, screen_height)?;
 
-            base.graphics_command_buffers = vec![Default::default(); base.swapchain_len];
-            base.transfer_command_buffers = vec![Default::default(); base.swapchain_len];
-
             base.create_render_pass()?;
-            base.create_descriptor_set_layout()?;
+            base.create_descriptor_set_layouts()?;
             base.create_graphics_pipeline()?;
             base.create_ui_pipeline()?;
 
@@ -892,7 +901,7 @@ impl VulkanBase {
         Ok(())
     }
 
-    unsafe fn create_descriptor_set_layout(&mut self) -> VkResult<()> {
+    unsafe fn create_descriptor_set_layouts(&mut self) -> VkResult<()> {
         let ubo_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -926,6 +935,13 @@ impl VulkanBase {
                     .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
             );
         }
+
+        let ui_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .build();
 
         Ok(())
     }
@@ -1086,17 +1102,19 @@ impl VulkanBase {
         index: usize,
         secondary_command_buffers: &[vk::CommandBuffer],
     ) -> VkResult<vk::CommandBuffer> {
-        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.graphics_command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(1)
-            .build();
-        let cmd_buf = self
-            .device
-            .allocate_command_buffers(&command_buffer_alloc_info)?[0];
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
-            .build();
+        let cmd_buf = if let Some(cmd_buf) = self.render_pass_cmd_bufs[index] {
+            cmd_buf
+        } else {
+            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(self.graphics_command_pool)
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_buffer_count(1)
+                .build();
+            self.device
+                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
+        };
+
+        let begin_info = vk::CommandBufferBeginInfo::builder().build();
         self.device.begin_command_buffer(cmd_buf, &begin_info)?;
 
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
@@ -1136,7 +1154,7 @@ impl VulkanBase {
         Ok(cmd_buf)
     }
 
-    unsafe fn create_ui_take_ownership_cmd_bufs(&mut self) -> VkResult<()> {
+    unsafe fn create_take_ownership_cmd_bufs(&mut self) -> VkResult<()> {
         for index in 0..self.swapchain_len {
             let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
                 .command_pool(self.graphics_command_pool)
@@ -1147,9 +1165,7 @@ impl VulkanBase {
                 .device
                 .allocate_command_buffers(&command_buffer_alloc_info)?[0];
 
-            let begin_info = vk::CommandBufferBeginInfo::builder()
-                .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
-                .build();
+            let begin_info = vk::CommandBufferBeginInfo::builder().build();
             self.device
                 .begin_command_buffer(command_buffer, &begin_info)?;
 
@@ -1212,10 +1228,7 @@ impl VulkanBase {
                     .subpass(0)
                     .build(),
             )
-            .flags(
-                vk::CommandBufferUsageFlags::SIMULTANEOUS_USE
-                    | vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE,
-            )
+            .flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE)
             .build();
         self.device.begin_command_buffer(cmd_buf, &begin_info)?;
 
@@ -1259,9 +1272,7 @@ impl VulkanBase {
                 .allocate_command_buffers(&command_buffer_alloc_info)?[0]
         };
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE)
-            .build();
+        let begin_info = vk::CommandBufferBeginInfo::builder().build();
         self.device.begin_command_buffer(cmd_buf, &begin_info)?;
 
         self.device.cmd_copy_buffer(
@@ -1322,6 +1333,10 @@ impl VulkanBase {
     }
 
     unsafe fn create_ui_buffers(&mut self) -> VkResult<()> {
+        self.graphics_command_buffers = vec![Default::default(); self.swapchain_len];
+        self.transfer_command_buffers = vec![Default::default(); self.swapchain_len];
+        self.render_pass_cmd_bufs = vec![Default::default(); self.swapchain_len];
+
         for _ in 0..self.swapchain_len {
             let mut staging_buf = Buffer::new(
                 self,
@@ -1360,7 +1375,7 @@ impl VulkanBase {
         self.ui_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
         self.transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
-        self.create_ui_take_ownership_cmd_bufs()?;
+        self.create_take_ownership_cmd_bufs()?;
 
         Ok(())
     }
@@ -1429,10 +1444,7 @@ impl VulkanBase {
                     .subpass(0)
                     .build(),
             )
-            .flags(
-                vk::CommandBufferUsageFlags::SIMULTANEOUS_USE
-                    | vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE,
-            )
+            .flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE)
             .build();
         self.device.begin_command_buffer(cmd_buf, &begin_info)?;
 
