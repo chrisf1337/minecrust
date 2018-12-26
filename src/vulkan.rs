@@ -1,7 +1,7 @@
+mod buffer;
 pub mod error;
 mod one_time_command_buffer;
 mod texture;
-mod vertex_buffer;
 
 use crate::{
     freetype,
@@ -11,10 +11,10 @@ use crate::{
     types::*,
     utils::{clamp, NSEC_PER_SEC},
     vulkan::{
+        buffer::Buffer,
         error::{VulkanError, VulkanResult},
         one_time_command_buffer::OneTimeCommandBuffer,
         texture::Texture,
-        vertex_buffer::VertexBuffer,
     },
 };
 use ash;
@@ -264,15 +264,15 @@ pub struct VulkanBase {
     graphics_pipeline: vk::Pipeline,
     graphics_pipeline_layout: vk::PipelineLayout,
 
-    graphics_staging_vertex_buffers: Vec<VertexBuffer<Vertex3f>>,
-    graphics_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
+    graphics_staging_vertex_buffers: Vec<Buffer<Vertex3f>>,
+    graphics_vertex_buffers: Vec<Buffer<TextVertex>>,
     graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     text_pipeline: vk::Pipeline,
     text_pipeline_layout: vk::PipelineLayout,
 
-    text_staging_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
-    text_vertex_buffers: Vec<VertexBuffer<TextVertex>>,
+    text_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
+    text_vertex_buffers: Vec<Buffer<TextVertex>>,
     text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
@@ -1323,7 +1323,7 @@ impl VulkanBase {
 
     unsafe fn create_text_buffers(&mut self) -> VkResult<()> {
         for _ in 0..self.swapchain_len {
-            let mut staging_buf = VertexBuffer::new(
+            let mut staging_buf = Buffer::new(
                 self,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_SRC,
@@ -1332,14 +1332,14 @@ impl VulkanBase {
             staging_buf.map()?;
             self.graphics_staging_vertex_buffers.push(staging_buf);
 
-            self.graphics_vertex_buffers.push(VertexBuffer::new(
+            self.graphics_vertex_buffers.push(Buffer::new(
                 self,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
 
-            let mut staging_buf = VertexBuffer::new(
+            let mut staging_buf = Buffer::new(
                 self,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_SRC,
@@ -1348,7 +1348,7 @@ impl VulkanBase {
             staging_buf.map()?;
             self.text_staging_vertex_buffers.push(staging_buf);
 
-            self.text_vertex_buffers.push(VertexBuffer::new(
+            self.text_vertex_buffers.push(Buffer::new(
                 self,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,

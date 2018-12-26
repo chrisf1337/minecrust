@@ -1,9 +1,9 @@
-use crate::vulkan::{VulkanBase, VulkanResult};
+use crate::vulkan::VulkanBase;
 use ash::{prelude::VkResult, version::DeviceV1_0, vk, Device};
 use std::{fmt, marker::PhantomData, rc::Rc};
 
 #[derive(Clone)]
-pub struct VertexBuffer<T> {
+pub struct Buffer<T> {
     phantom_ty: PhantomData<T>,
     device: Rc<Device>,
     pub buffer: vk::Buffer,
@@ -15,9 +15,9 @@ pub struct VertexBuffer<T> {
     pub ptr: *mut T,
 }
 
-impl<T> fmt::Debug for VertexBuffer<T> {
+impl<T> fmt::Debug for Buffer<T> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("VertexBuffer")
+        fmt.debug_struct("Buffer")
             .field("buf", &self.buffer)
             .field("memory", &self.memory)
             .field("len", &self.len)
@@ -28,16 +28,16 @@ impl<T> fmt::Debug for VertexBuffer<T> {
     }
 }
 
-impl<T> VertexBuffer<T> {
+impl<T> Buffer<T> {
     pub fn new(
         base: &VulkanBase,
         capacity: vk::DeviceSize,
         usage: vk::BufferUsageFlags,
         memory_properties: vk::MemoryPropertyFlags,
-    ) -> VkResult<VertexBuffer<T>> {
+    ) -> VkResult<Buffer<T>> {
         unsafe {
             let (buffer, memory) = base.create_buffer(capacity, usage, memory_properties)?;
-            Ok(VertexBuffer {
+            Ok(Buffer {
                 phantom_ty: PhantomData,
                 device: base.device.clone(),
                 buffer,
