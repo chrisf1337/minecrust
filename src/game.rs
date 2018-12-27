@@ -15,8 +15,8 @@ use alga::general::SubsetOf;
 use failure::{err_msg, Error};
 use specs::prelude::*;
 use std::{
-    cell::RefCell,
-    collections::HashSet,
+    cell::{RefCell, RefMut},
+    collections::HashMap,
     ops::DerefMut,
     rc::Rc,
     time::{Duration, SystemTime},
@@ -27,7 +27,7 @@ pub struct GameState {
     pub resized: bool,
 
     pub camera: Camera,
-    pub pressed_keys: HashSet<VirtualKeyCode>,
+    pub pressed_keys: HashMap<VirtualKeyCode, usize>,
     pub mouse_delta: (f64, f64),
     pub elapsed_time: Duration,
     pub frame_time_delta: Duration,
@@ -45,7 +45,7 @@ impl<'a, 'b> Game<'a, 'b> {
         let state = GameState {
             resized: false,
             camera: Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin()),
-            pressed_keys: HashSet::new(),
+            pressed_keys: HashMap::new(),
             mouse_delta: (0.0, 0.0),
             elapsed_time: Duration::default(),
             frame_time_delta: Duration::default(),
@@ -119,8 +119,13 @@ impl<'a, 'b> Game<'a, 'b> {
         let mut running = true;
         let mut just_started = true;
         let mut focused = true;
+        let mut should_grab_cursor = true;
+        let mut old_cursor_grabbed = should_grab_cursor;
+        let mut already_changed_cursor_state = false;
         let mut last_frame_time = SystemTime::now();
         let start_time = SystemTime::now();
+
+        self.toggle_cursor_grab(&self.renderer.borrow_mut(), true)?;
 
         while running {
             let mut resized = false;
@@ -128,28 +133,45 @@ impl<'a, 'b> Game<'a, 'b> {
             let frame_time_delta = current_frame_time.duration_since(last_frame_time)?;
             last_frame_time = current_frame_time;
             let mut mouse_delta = (0.0, 0.0);
+            let mut new_cursor_grabbed = old_cursor_grabbed;
             {
                 let mut state = self.world.write_resource::<GameState>();
                 let state = state.deref_mut();
                 let pressed_keys = &mut state.pressed_keys;
                 let mut renderer = self.renderer.borrow_mut();
 
-                if focused {
-                    let window = renderer.window();
-                    window.grab_cursor(true).map_err(err_msg)?;
-                    window.hide_cursor(true);
-                }
-
                 renderer.events_loop().poll_events(|event| match event {
                     Event::DeviceEvent { event, .. } => {
-                        on_device_event(&event, pressed_keys, &mut mouse_delta);
-                        if pressed_keys.contains(&VirtualKeyCode::Escape) && focused {
-                            running = false;
+                        if focused {
+                            on_device_event(&event, pressed_keys, &mut mouse_delta);
+                            if pressed_keys.contains_key(&VirtualKeyCode::Escape) {
+                                running = false;
+                            }
+
+                            if let Some(&count) = pressed_keys.get(&VirtualKeyCode::F1) {
+                                if count == 1 && !already_changed_cursor_state {
+                                    should_grab_cursor = !should_grab_cursor;
+                                    new_cursor_grabbed = should_grab_cursor;
+                                    already_changed_cursor_state = true;
+                                }
+                            } else {
+                                already_changed_cursor_state = false;
+                            }
                         }
                     }
                     Event::WindowEvent { event, .. } => match event {
                         WindowEvent::CloseRequested => running = false,
-                        WindowEvent::Focused(f) => focused = f,
+                        WindowEvent::Focused(f) => {
+                            focused = f;
+                            if f {
+                                // only regrab cursor if should_grab_cursor is toggled
+                                if should_grab_cursor {
+                                    new_cursor_grabbed = true;
+                                }
+                            } else {
+                                new_cursor_grabbed = false;
+                            }
+                        }
                         WindowEvent::Resized(LogicalSize { width, height }) => {
                             // FIXME: handle minimization?
                             // Right now we don't allow the window to be resized
@@ -165,7 +187,17 @@ impl<'a, 'b> Game<'a, 'b> {
                     },
                     _ => (),
                 });
-                state.mouse_delta = mouse_delta;
+
+                if new_cursor_grabbed != old_cursor_grabbed {
+                    self.toggle_cursor_grab(&renderer, new_cursor_grabbed)?;
+                    old_cursor_grabbed = new_cursor_grabbed;
+                }
+                if should_grab_cursor {
+                    state.mouse_delta = mouse_delta;
+                } else {
+                    state.mouse_delta = (0.0, 0.0);
+                }
+
                 state.elapsed_time = start_time.elapsed()?;
                 state.frame_time_delta = frame_time_delta;
                 state.resized = resized;
@@ -173,6 +205,17 @@ impl<'a, 'b> Game<'a, 'b> {
             self.dispatcher.dispatch(&self.world.res);
             self.world.maintain();
         }
+        Ok(())
+    }
+
+    fn toggle_cursor_grab(
+        &self,
+        renderer: &RefMut<dyn Renderer + 'static>,
+        active: bool,
+    ) -> Result<(), Error> {
+        let window = renderer.window();
+        window.grab_cursor(active).map_err(err_msg)?;
+        window.hide_cursor(active);
         Ok(())
     }
 }

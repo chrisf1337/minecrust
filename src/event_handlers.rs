@@ -1,10 +1,9 @@
-use std::collections::HashSet;
-use std::hash::BuildHasher;
+use std::collections::HashMap;
 use winit::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode};
 
-pub fn on_device_event<S: BuildHasher>(
+pub fn on_device_event(
     event: &DeviceEvent,
-    pressed_keys: &mut HashSet<VirtualKeyCode, S>,
+    pressed_keys: &mut HashMap<VirtualKeyCode, usize>,
     (delta_x, delta_y): &mut (f64, f64),
 ) {
     match event {
@@ -14,7 +13,7 @@ pub fn on_device_event<S: BuildHasher>(
             ..
         }) => match state {
             ElementState::Pressed => {
-                pressed_keys.insert(*keycode);
+                *pressed_keys.entry(*keycode).or_insert(0) += 1;
             }
             ElementState::Released => {
                 pressed_keys.remove(keycode);

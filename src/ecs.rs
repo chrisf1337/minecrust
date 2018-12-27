@@ -182,7 +182,7 @@ impl<'a> System<'a> for RenderSystem {
             *camera_animation = None;
         }
         let camera_speed = 3.0 * frame_time_delta_f;
-        for keycode in pressed_keys {
+        for keycode in pressed_keys.keys() {
             match keycode {
                 VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),
                 VirtualKeyCode::S => camera.pos -= camera_speed * camera.direction().unwrap(),
