@@ -13,30 +13,17 @@ use crate::{
         VulkanCore,
     },
 };
-use ash;
 use ash::{
-    extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
     prelude::VkResult,
-    version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1},
-    vk, vk_make_version, Device, Entry, Instance,
+    version::{DeviceV1_0, InstanceV1_0},
+    vk,
 };
 use byteorder::ByteOrder;
 use byteorder::LittleEndian;
 use image;
 use std::{
-    collections::HashMap,
-    ffi::{CStr, CString},
-    fs::File,
-    io::prelude::*,
-    os::raw::*,
-    path::Path,
-    ptr,
-    rc::Rc,
-    time::SystemTime,
+    collections::HashMap, ffi::CString, fs::File, io::prelude::*, path::Path, time::SystemTime,
 };
-#[cfg(target_os = "windows")]
-use winapi;
-use winit;
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
 const MAX_FRAMES_IN_FLIGHT: usize = 5;
@@ -228,10 +215,6 @@ impl VulkanApp {
 
             let semaphore_ci = vk::SemaphoreCreateInfo::default();
             let semaphore = core.device.create_semaphore(&semaphore_ci, None)?;
-
-            let limits = core
-                .instance
-                .get_physical_device_properties(core.physical_device);
 
             let mut base = VulkanApp {
                 current_frame: 0,
@@ -1176,7 +1159,7 @@ impl VulkanApp {
 
         for _ in 0..self.swapchain_len {
             let mut staging_buf = Buffer::new(
-                self,
+                &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_SRC,
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -1185,14 +1168,14 @@ impl VulkanApp {
             self.graphics_staging_vertex_buffers.push(staging_buf);
 
             self.graphics_vertex_buffers.push(Buffer::new(
-                self,
+                &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
 
             let mut staging_buf = Buffer::new(
-                self,
+                &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_SRC,
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -1201,14 +1184,14 @@ impl VulkanApp {
             self.ui_staging_vertex_buffers.push(staging_buf);
 
             self.ui_vertex_buffers.push(Buffer::new(
-                self,
+                &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
 
             let mut uniform_buf = Buffer::new(
-                self,
+                &self.core,
                 std::mem::size_of::<UiUniforms>() as vk::DeviceSize,
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -1354,34 +1337,6 @@ impl VulkanApp {
         Ok(())
     }
 
-    pub unsafe fn create_buffer(
-        &self,
-        size: vk::DeviceSize,
-        usage: vk::BufferUsageFlags,
-        memory_property_flags: vk::MemoryPropertyFlags,
-    ) -> VkResult<(vk::Buffer, vk::DeviceMemory)> {
-        let buffer_ci = vk::BufferCreateInfo::builder()
-            .size(size)
-            .usage(usage)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .build();
-        let buffer = self.core.device.create_buffer(&buffer_ci, None)?;
-
-        let memory_requirements = self.core.device.get_buffer_memory_requirements(buffer);
-        let memory_alloc_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(memory_requirements.size)
-            .memory_type_index(
-                self.find_memory_type(memory_requirements.memory_type_bits, memory_property_flags)
-                    .unwrap(),
-            )
-            .build();
-        let buffer_memory = self.core.device.allocate_memory(&memory_alloc_info, None)?;
-        self.core
-            .device
-            .bind_buffer_memory(buffer, buffer_memory, 0)?;
-        Ok((buffer, buffer_memory))
-    }
-
     unsafe fn create_image(
         &self,
         width: u32,
@@ -1430,7 +1385,7 @@ impl VulkanApp {
         mip_levels: u32,
     ) -> VulkanResult<Texture> {
         let img_size = vk::DeviceSize::from(img_width * img_height * 4);
-        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+        let (staging_buffer, staging_buffer_memory) = self.core.create_buffer(
             img_size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -1846,7 +1801,7 @@ impl VulkanApp {
     unsafe fn create_uniform_buffers(&mut self) -> VkResult<()> {
         let buffer_size = std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize;
         for _ in 0..self.swapchain_len {
-            let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
+            let (uniform_buffer, uniform_buffer_memory) = self.core.create_buffer(
                 buffer_size,
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,

@@ -182,6 +182,32 @@ impl VulkanCore {
         }
         None
     }
+
+    pub unsafe fn create_buffer(
+        &self,
+        size: vk::DeviceSize,
+        usage: vk::BufferUsageFlags,
+        memory_property_flags: vk::MemoryPropertyFlags,
+    ) -> VkResult<(vk::Buffer, vk::DeviceMemory)> {
+        let buffer_ci = vk::BufferCreateInfo::builder()
+            .size(size)
+            .usage(usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .build();
+        let buffer = self.device.create_buffer(&buffer_ci, None)?;
+
+        let memory_requirements = self.device.get_buffer_memory_requirements(buffer);
+        let memory_alloc_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(
+                self.find_memory_type(memory_requirements.memory_type_bits, memory_property_flags)
+                    .unwrap(),
+            )
+            .build();
+        let buffer_memory = self.device.allocate_memory(&memory_alloc_info, None)?;
+        self.device.bind_buffer_memory(buffer, buffer_memory, 0)?;
+        Ok((buffer, buffer_memory))
+    }
 }
 
 impl Drop for VulkanCore {
