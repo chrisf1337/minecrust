@@ -1,4 +1,4 @@
-use crate::vulkan::VulkanResult;
+use crate::vulkan::error::VulkanResult;
 use ash::{version::DeviceV1_0, vk, Device};
 
 pub struct OneTimeCommandBuffer<'a> {

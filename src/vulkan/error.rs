@@ -52,3 +52,10 @@ impl From<freetype::FtError> for VulkanError {
 }
 
 pub type VulkanResult<T> = Result<T, VulkanError>;
+
+pub fn from_vk_result<T>(result: vk::Result, t: T) -> VulkanResult<T> {
+    match result {
+        vk::Result::SUCCESS => Ok(t),
+        e => Err(e.into()),
+    }
+}

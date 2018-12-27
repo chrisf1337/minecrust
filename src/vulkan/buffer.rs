@@ -1,4 +1,4 @@
-use crate::vulkan::VulkanBase;
+use crate::vulkan::app::VulkanApp;
 use ash::{prelude::VkResult, version::DeviceV1_0, vk, Device};
 use std::{fmt, marker::PhantomData, rc::Rc};
 
@@ -32,7 +32,7 @@ impl<T> fmt::Debug for Buffer<T> {
 
 impl<T> Buffer<T> {
     pub fn new(
-        base: &VulkanBase,
+        base: &VulkanApp,
         capacity: vk::DeviceSize,
         usage: vk::BufferUsageFlags,
         memory_property_flags: vk::MemoryPropertyFlags,
@@ -41,7 +41,7 @@ impl<T> Buffer<T> {
             let (buffer, memory) = base.create_buffer(capacity, usage, memory_property_flags)?;
             Ok(Buffer {
                 phantom_ty: PhantomData,
-                device: base.device.clone(),
+                device: base.core.device.clone(),
                 buffer,
                 memory,
                 capacity,

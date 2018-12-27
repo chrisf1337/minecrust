@@ -9,7 +9,7 @@ use crate::{
     na::Translation3,
     renderer::Renderer,
     types::*,
-    vulkan::VulkanBase,
+    vulkan::VulkanApp,
 };
 use alga::general::SubsetOf;
 use failure::{err_msg, Error};
@@ -51,7 +51,7 @@ impl<'a, 'b> Game<'a, 'b> {
             frame_time_delta: Duration::default(),
             camera_animation: None,
         };
-        let renderer = Rc::new(RefCell::new(VulkanBase::new(screen_width, screen_height)?));
+        let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
 
         let mut world = World::new();
         world.register::<TransformComponent>();
