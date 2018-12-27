@@ -413,7 +413,7 @@ impl VulkanBase {
                     )
                 } else {
                     return Err(VulkanError::Str(
-                        "cannot find suitable queue family".to_string(),
+                        "cannot find suitable queue family".to_owned(),
                     ));
                 }
             };
@@ -600,9 +600,9 @@ impl VulkanBase {
             let texture = base.create_texture_image("assets/texture.jpg")?;
             let cobblestone_texture =
                 base.create_texture_image("assets/cobblestone-border-arrow.png")?;
-            base.textures.insert("texture".to_string(), texture);
+            base.textures.insert("texture".to_owned(), texture);
             base.textures
-                .insert("cobblestone".to_string(), cobblestone_texture);
+                .insert("cobblestone".to_owned(), cobblestone_texture);
 
             base.create_uniform_buffers()?;
             base.create_buffers()?;
@@ -862,7 +862,7 @@ impl VulkanBase {
 
         let depth_format = self
             .depth_format()
-            .ok_or_else(|| VulkanError::Str("couldn't find depth format".to_string()))?;
+            .ok_or_else(|| VulkanError::Str("couldn't find depth format".to_owned()))?;
         let depth_attachment_description = vk::AttachmentDescription::builder()
             .format(depth_format)
             .samples(self.msaa_samples)
@@ -1997,9 +1997,7 @@ impl VulkanBase {
             source_stage = vk::PipelineStageFlags::TOP_OF_PIPE;
             destination_stage = vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
         } else {
-            return Err(VulkanError::Str(
-                "unsupported layout transition".to_string(),
-            ));
+            return Err(VulkanError::Str("unsupported layout transition".to_owned()));
         }
 
         let barrier = barrier_builder.build();
@@ -2365,7 +2363,7 @@ impl VulkanBase {
     unsafe fn create_depth_resources(&mut self) -> VulkanResult<()> {
         let depth_format = self
             .depth_format()
-            .ok_or_else(|| VulkanError::Str("could not find depth format".to_string()))?;
+            .ok_or_else(|| VulkanError::Str("could not find depth format".to_owned()))?;
         let (depth_image, depth_image_memory) = self.create_image(
             self.swapchain_extent.width,
             self.swapchain_extent.height,
