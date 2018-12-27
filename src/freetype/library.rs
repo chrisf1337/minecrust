@@ -80,7 +80,7 @@ impl Drop for Face {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct GlyphMetrics {
     pub width: ft::FT_Pos,
     pub height: ft::FT_Pos,

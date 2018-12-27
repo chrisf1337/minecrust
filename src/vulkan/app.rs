@@ -119,7 +119,8 @@ pub struct VulkanApp {
 
     render_pass: vk::RenderPass,
 
-    glyph_metrics: HashMap<char, freetype::GlyphMetrics>,
+    glyph_metrics: Vec<freetype::GlyphMetrics>,
+    glyph_textures: Vec<Texture>,
 
     graphics_command_pool: vk::CommandPool,
     graphics_command_buffers: Vec<vk::CommandBuffer>,
@@ -235,6 +236,7 @@ impl VulkanApp {
                 ui_pipeline: Default::default(),
 
                 glyph_metrics: Default::default(),
+                glyph_textures: Default::default(),
 
                 graphics_command_pool: Default::default(),
                 graphics_command_buffers: Default::default(),
@@ -326,7 +328,7 @@ impl VulkanApp {
                     (vec![0], (1, 1))
                 };
                 let texture =
-                    base.create_texture_image_from_bytes(&pad_font_bytes(buffer), dimensions, 1)?;
+                    base.new_texture_image_from_bytes(&pad_font_bytes(buffer), dimensions, 1)?;
                 base.textures.insert(c.to_string(), texture);
             }
 
@@ -1378,7 +1380,7 @@ impl VulkanApp {
         Ok((image, image_memory))
     }
 
-    unsafe fn create_texture_image_from_bytes(
+    unsafe fn new_texture_image_from_bytes(
         &self,
         bytes: &[u8],
         (img_width, img_height): (u32, u32),
@@ -1449,11 +1451,12 @@ impl VulkanApp {
 
         let texture_image_view = self.create_texture_image_view(texture_image, mip_levels)?;
 
-        Ok(Texture {
-            image: texture_image,
-            view: texture_image_view,
-            memory: texture_image_memory,
-        })
+        Ok(Texture::new(
+            &self.core,
+            texture_image,
+            texture_image_memory,
+            texture_image_view,
+        ))
     }
 
     unsafe fn create_texture_image<P: AsRef<Path>>(&mut self, path: P) -> VulkanResult<Texture> {
@@ -1461,7 +1464,7 @@ impl VulkanApp {
         let (img_width, img_height) = img.dimensions();
         let mip_levels = f32::floor(f32::log2(u32::max(img_width, img_height) as f32)) as u32 + 1;
 
-        self.create_texture_image_from_bytes(&img.to_vec(), (img_width, img_height), mip_levels)
+        self.new_texture_image_from_bytes(&img.to_vec(), (img_width, img_height), mip_levels)
     }
 
     unsafe fn create_image_view(
@@ -2007,7 +2010,7 @@ impl VulkanApp {
                 .build();
 
             // binding 2: image
-            let cobblestone_texture = self.textures["cobblestone"];
+            let cobblestone_texture = &self.textures["cobblestone"];
             let texture_descriptor_image_info = vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(cobblestone_texture.view)
@@ -2231,10 +2234,8 @@ impl Drop for VulkanApp {
 
             self.clean_up_swapchain();
 
-            for texture in self.textures.values() {
-                self.core.device.destroy_image_view(texture.view, None);
-                self.core.device.destroy_image(texture.image, None);
-                self.core.device.free_memory(texture.memory, None);
+            for texture in self.textures.values_mut() {
+                texture.deinit();
             }
 
             self.core.device.destroy_sampler(self.texture_sampler, None);
