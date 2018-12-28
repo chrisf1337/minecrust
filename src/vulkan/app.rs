@@ -101,7 +101,7 @@ fn pad_font_bytes(bytes: Vec<u8>) -> Vec<u8> {
         v.push(b);
         v.push(b);
         v.push(b);
-        v.push(255);
+        v.push(b);
     }
     v
 }
@@ -164,6 +164,7 @@ pub struct VulkanApp {
 
     textures: HashMap<String, Texture>,
     texture_sampler: vk::Sampler,
+    ui_text_sampler: vk::Sampler,
 
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
@@ -272,6 +273,7 @@ impl VulkanApp {
 
                 textures: HashMap::default(),
                 texture_sampler: Default::default(),
+                ui_text_sampler: Default::default(),
 
                 depth_image: Default::default(),
                 depth_image_memory: Default::default(),
@@ -296,7 +298,7 @@ impl VulkanApp {
             };
 
             base.msaa_samples = base.get_max_usable_sample_count();
-            base.texture_sampler = base.create_texture_sampler()?;
+            base.create_texture_samplers()?;
 
             base.create_swapchain(screen_width, screen_height)?;
 
@@ -314,7 +316,7 @@ impl VulkanApp {
             // fonts
             let ft_lib = freetype::Library::init()?;
             let face = ft_lib.new_face("assets/fonts/SourceCodePro-Regular.ttf", 0)?;
-            face.set_pixel_sizes(0, 48)?;
+            face.set_pixel_sizes(0, 100)?;
 
             for c in 0..=255u8 {
                 let c = c as char;
@@ -541,8 +543,8 @@ impl VulkanApp {
             .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
             .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
             .color_blend_op(vk::BlendOp::ADD)
-            .src_alpha_blend_factor(vk::BlendFactor::ONE)
-            .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+            .src_alpha_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
             .alpha_blend_op(vk::BlendOp::ADD)
             .build();
         let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
@@ -725,7 +727,7 @@ impl VulkanApp {
             .descriptor_type(vk::DescriptorType::SAMPLER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&[self.texture_sampler])
+            .immutable_samplers(&[self.ui_text_sampler])
             .build();
         let glyph_textures_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(2)
@@ -1235,11 +1237,10 @@ impl VulkanApp {
         mut pos: Point2f,
         scale: f32,
         color: Color,
-    ) {
+    ) -> VkResult<()> {
         assert!(!string.is_empty());
-        assert!(!string.contains("\n"));
+        assert!(!string.contains('\n'));
 
-        let vertex_buffer = &mut self.ui_staging_vertex_buffers[index];
         let mut vertices: Vec<TextVertex> = vec![];
 
         let max_bearing_y = string
@@ -1247,30 +1248,58 @@ impl VulkanApp {
             .map(|c| self.glyph_metrics[c as usize].bearing_y)
             .max_by(|x, y| x.partial_cmp(y).unwrap())
             .expect("no max_bearing_y") as f32;
-        let baseline_y = pos.y - max_bearing_y;
+        let baseline_y = pos.y + max_bearing_y;
 
         for ch in string.chars() {
             let metrics = &self.glyph_metrics[ch as usize];
-            let quad = [
-                TextVertex::new(
-                    ch as usize,
-                    Point2f::new(pos.x + metrics.bearing_x, baseline_y - metrics.bearing_y),
-                    Point2f::new(0.0, 0.0),
-                    color,
+            let left_top = TextVertex::new(
+                ch as usize,
+                Point2f::new(pos.x + metrics.bearing_x, baseline_y - metrics.bearing_y),
+                Point2f::new(0.0, 0.0),
+                color,
+            );
+            let left_bottom = TextVertex::new(
+                ch as usize,
+                Point2f::new(
+                    pos.x + metrics.bearing_x,
+                    baseline_y - metrics.bearing_y + metrics.height,
                 ),
-                TextVertex::new(
-                    ch as usize,
-                    Point2f::new(
-                        pos.x + metrics.bearing_x,
-                        baseline_y - metrics.bearing_y + metrics.height,
-                    ),
-                    Point2f::new(0.0, 0.0),
-                    color,
+                Point2f::new(0.0, 1.0),
+                color,
+            );
+            let right_bottom = TextVertex::new(
+                ch as usize,
+                Point2f::new(
+                    pos.x + metrics.bearing_x + metrics.width,
+                    baseline_y - metrics.bearing_y + metrics.height,
                 ),
-                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
-                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
-            ];
+                Point2f::new(1.0, 1.0),
+                color,
+            );
+            let right_top = TextVertex::new(
+                ch as usize,
+                Point2f::new(
+                    pos.x + metrics.bearing_x + metrics.width,
+                    baseline_y - metrics.bearing_y,
+                ),
+                Point2f::new(1.0, 0.0),
+                color,
+            );
+
+            vertices.extend(&[
+                left_top,
+                left_bottom,
+                right_bottom,
+                left_top,
+                right_bottom,
+                right_top,
+            ]);
+            pos.x += metrics.advance;
         }
+
+        let vertex_buffer = &mut self.ui_staging_vertex_buffers[index];
+        vertex_buffer.copy_data(&vertices)?;
+        Ok(())
     }
 
     pub fn recreate_swapchain(&mut self) -> VulkanResult<()> {
@@ -1698,14 +1727,14 @@ impl VulkanApp {
         )
     }
 
-    unsafe fn create_texture_sampler(&self) -> VulkanResult<vk::Sampler> {
+    unsafe fn create_texture_samplers(&mut self) -> VulkanResult<()> {
         let sampler_ci = vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::NEAREST)
             .min_filter(vk::Filter::LINEAR)
             .address_mode_u(vk::SamplerAddressMode::REPEAT)
             .address_mode_v(vk::SamplerAddressMode::REPEAT)
             .address_mode_w(vk::SamplerAddressMode::REPEAT)
-            .anisotropy_enable(false)
+            .anisotropy_enable(true)
             .max_anisotropy(16.0)
             .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
             .unnormalized_coordinates(false)
@@ -1716,7 +1745,25 @@ impl VulkanApp {
             .min_lod(0.0)
             .max_lod(100.0)
             .build();
-        Ok(self.core.device.create_sampler(&sampler_ci, None)?)
+        self.texture_sampler = self.core.device.create_sampler(&sampler_ci, None)?;
+        self.ui_text_sampler = self.core.device.create_sampler(
+            &vk::SamplerCreateInfo::builder()
+                .mag_filter(vk::Filter::LINEAR)
+                .min_filter(vk::Filter::LINEAR)
+                .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                .anisotropy_enable(true)
+                .max_anisotropy(16.0)
+                .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+                .unnormalized_coordinates(false)
+                .compare_enable(false)
+                .compare_op(vk::CompareOp::ALWAYS)
+                .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+                .build(),
+            None,
+        )?;
+        Ok(())
     }
 
     unsafe fn transition_image_layout(
@@ -2105,7 +2152,7 @@ impl VulkanApp {
                 .build();
 
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .sampler(self.texture_sampler)
+                .sampler(self.ui_text_sampler)
                 .build();
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(ds)
@@ -2313,6 +2360,7 @@ impl Drop for VulkanApp {
             }
 
             self.core.device.destroy_sampler(self.texture_sampler, None);
+            self.core.device.destroy_sampler(self.ui_text_sampler, None);
             self.core
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
@@ -2436,28 +2484,12 @@ impl Renderer for VulkanApp {
                     self.update_graphics_vertex_buffer(image_index, &render_data.vertices)?;
 
                     // text
-                    self.update_ui_vertex_buffer(
+                    self.draw_text(
                         image_index,
-                        &[
-                            TextVertex::new(
-                                0,
-                                Point2f::new(10.0, 10.0),
-                                Point2f::new(0.0, 0.0),
-                                Color::new(1.0, 0.0, 0.0),
-                            ),
-                            TextVertex::new(
-                                0,
-                                Point2f::new(10.0, 100.0),
-                                Point2f::new(0.0, 0.0),
-                                Color::new(0.0, 1.0, 0.0),
-                            ),
-                            TextVertex::new(
-                                0,
-                                Point2f::new(100.0, 10.0),
-                                Point2f::new(0.0, 0.0),
-                                Color::new(0.0, 0.0, 1.0),
-                            ),
-                        ],
+                        "Hello world",
+                        Point2f::new(100.0, 100.0),
+                        1.0,
+                        Color::new(1.0, 0.0, 0.0),
                     )?;
 
                     let transfer_cmd_buf = self.new_transfer_cmd_buf(image_index)?;
