@@ -1,4 +1,3 @@
-use crate::freetype;
 use ash::vk;
 use failure_derive::Fail;
 use image;
@@ -18,7 +17,7 @@ pub enum VulkanError {
     #[fail(display = "{}", _0)]
     VkError(#[cause] vk::Result),
     #[fail(display = "{}", _0)]
-    FtError(#[cause] freetype::FtError),
+    FtError(#[cause] freetype::Error),
 }
 
 impl From<image::ImageError> for VulkanError {
@@ -45,8 +44,8 @@ impl From<std::io::Error> for VulkanError {
     }
 }
 
-impl From<freetype::FtError> for VulkanError {
-    fn from(err: freetype::FtError) -> VulkanError {
+impl From<freetype::Error> for VulkanError {
+    fn from(err: freetype::Error) -> VulkanError {
         VulkanError::FtError(err)
     }
 }

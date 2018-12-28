@@ -1,0 +1,3 @@
+[target.i686-pc-windows-msvc.freetype]
+rustc-link-search = ["D:/projects/minecrust"]
+rustc-link-lib = ["freetype"]

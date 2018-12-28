@@ -11,7 +11,6 @@ mod bvh;
 mod camera;
 mod ecs;
 mod event_handlers;
-mod freetype;
 pub mod game;
 mod geometry;
 pub mod renderer;

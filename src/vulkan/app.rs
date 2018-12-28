@@ -1,5 +1,4 @@
 use crate::{
-    freetype,
     game::GameState,
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
@@ -28,6 +27,7 @@ use winit::{dpi::LogicalSize, EventsLoop, Window};
 
 const MAX_FRAMES_IN_FLIGHT: usize = 5;
 const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 1 << 20;
+const N_GLYPH_TEXTURES: usize = 256;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -312,24 +312,29 @@ impl VulkanApp {
             base.create_framebuffers()?;
 
             // fonts
-            let ft_lib = freetype::Library::new()?;
-            let mut face = ft_lib.new_face("assets/fonts/SourceCodePro-Regular.ttf", 0)?;
+            let ft_lib = freetype::Library::init()?;
+            let face = ft_lib.new_face("assets/fonts/SourceCodePro-Regular.ttf", 0)?;
             face.set_pixel_sizes(0, 48)?;
 
             for c in 0..=255u8 {
                 let c = c as char;
-                face.load_char(c, freetype::LoadFlags::Render)?;
-                let glyph = face.glyph.as_ref().unwrap();
-                let bitmap = &glyph.bitmap;
-                assert_eq!(glyph.metrics.width as u32, bitmap.width);
-                let (buffer, dimensions) = if !bitmap.buffer.is_empty() {
-                    (bitmap.buffer.clone(), (bitmap.width, bitmap.rows))
+                face.load_char(c as usize, freetype::face::LoadFlag::RENDER)?;
+                let glyph = face.glyph();
+                let bitmap = glyph.bitmap();
+                assert_eq!(glyph.metrics().width / 64, bitmap.width());
+                let (buffer, dimensions) = if !bitmap.buffer().is_empty() {
+                    (
+                        bitmap.buffer().to_vec(),
+                        (bitmap.width() as u32, bitmap.rows() as u32),
+                    )
                 } else {
                     (vec![0], (1, 1))
                 };
                 let texture =
                     base.new_texture_image_from_bytes(&pad_font_bytes(buffer), dimensions, 1)?;
-                base.textures.insert(c.to_string(), texture);
+
+                base.glyph_textures.push(texture);
+                base.glyph_metrics.push(glyph.metrics());
             }
 
             let texture = base.create_texture_image("assets/texture.jpg")?;
@@ -672,6 +677,7 @@ impl VulkanApp {
     }
 
     unsafe fn create_descriptor_set_layouts(&mut self) -> VkResult<()> {
+        // graphics
         let ubo_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -707,6 +713,7 @@ impl VulkanApp {
             );
         }
 
+        // ui
         let ui_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -720,8 +727,18 @@ impl VulkanApp {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .immutable_samplers(&[self.texture_sampler])
             .build();
+        let glyph_textures_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(2)
+            .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+            .descriptor_count(N_GLYPH_TEXTURES as u32)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .build();
         let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&[ui_uniforms_layout_binding, sampler_layout_binding])
+            .bindings(&[
+                ui_uniforms_layout_binding,
+                sampler_layout_binding,
+                glyph_textures_binding,
+            ])
             .build();
 
         for _ in &self.swapchain_images {
@@ -1215,12 +1232,27 @@ impl VulkanApp {
         &mut self,
         index: usize,
         string: &str,
-        pos: Point2f,
+        mut pos: Point2f,
         scale: f32,
         color: Color,
     ) {
+        assert!(!string.is_empty());
+        assert!(!string.contains("\n"));
+
         let vertex_buffer = &mut self.ui_staging_vertex_buffers[index];
         let mut vertices: Vec<TextVertex> = vec![];
+
+        // let max_y_max = string.chars().collect::<Vec<char>>().max_by_key(|c| self.glyph_metrics[c as usize].);
+
+        for ch in string.chars() {
+            let metrics = self.glyph_metrics[ch as usize];
+            let quad = [
+                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
+                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
+                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
+                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
+            ];
+        }
     }
 
     pub fn recreate_swapchain(&mut self) -> VulkanResult<()> {
@@ -1952,11 +1984,12 @@ impl VulkanApp {
     unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
         let uniforms_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count((self.swapchain_len * 3) as u32)
+            .descriptor_count((self.swapchain_len * 2) as u32)
             .build();
         let sampler_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLER)
-            .descriptor_count((self.swapchain_len * 2) as u32)
+            // 1 image + 256 glyphs
+            .descriptor_count(((1 + N_GLYPH_TEXTURES) * self.swapchain_len * 2) as u32)
             .build();
         let texture_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLED_IMAGE)
@@ -2064,8 +2097,28 @@ impl VulkanApp {
                 .image_info(&[sampler_descriptor_image_info])
                 .build();
 
+            let mut image_infos = [Default::default(); N_GLYPH_TEXTURES];
+            for (i, image_info) in image_infos.iter_mut().enumerate() {
+                *image_info = vk::DescriptorImageInfo::builder()
+                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image_view(self.glyph_textures[i].view)
+                    .build();
+            }
+
+            let glyphs_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(ds)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&image_infos)
+                .build();
+
             self.core.device.update_descriptor_sets(
-                &[buffer_write_descriptor_set, sampler_write_descriptor_set],
+                &[
+                    buffer_write_descriptor_set,
+                    sampler_write_descriptor_set,
+                    glyphs_write_descriptor_set,
+                ],
                 &[],
             );
         }
@@ -2235,6 +2288,9 @@ impl Drop for VulkanApp {
             self.clean_up_swapchain();
 
             for texture in self.textures.values_mut() {
+                texture.deinit();
+            }
+            for texture in &mut self.glyph_textures {
                 texture.deinit();
             }
 
