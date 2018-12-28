@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 
 pub fn col_to_vec3f(m: &Matrix3f, c: usize) -> Vector3f {
     let col = m.column(c);

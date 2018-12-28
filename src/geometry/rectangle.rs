@@ -1,6 +1,6 @@
 use crate::{
     geometry::{BoundingBox, PrimitiveGeometry},
-    types::*,
+    types::prelude::*,
 };
 
 /// A 2d rectangle along the xz plane.
@@ -65,14 +65,14 @@ mod tests {
     use super::*;
     use crate::na::geometry::Isometry;
     use crate::na::{Rotation3, Translation3};
-    use crate::types::Vector3f;
+    use crate::types::prelude::*;
     use crate::utils;
     use alga::general::SubsetOf;
 
     #[test]
     fn test_transform1() {
         let mut rect = Rectangle::new(1.0, 2.0);
-        let t = Translation3::from_vector(Vector3f::new(0.0, 2.0, 0.0));
+        let t = Translation3::from(Vector3f::new(0.0, 2.0, 0.0));
         let vertices = rect.vertices(&t.to_superset());
         assert!(utils::pt3f::almost_eq(
             &vertices[0],
@@ -96,7 +96,7 @@ mod tests {
     fn test_transform2() {
         let mut rect = Rectangle::new(1.0, 2.0);
         let t = Isometry::from_parts(
-            Translation3::from_vector(Vector3f::new(0.0, 0.0, 0.5)),
+            Translation3::from(Vector3f::new(0.0, 0.0, 0.5)),
             Rotation3::from_axis_angle(&Vector3f::x_axis(), ::std::f32::consts::FRAC_PI_2),
         );
         let vertices = rect.vertices(&t.to_superset());

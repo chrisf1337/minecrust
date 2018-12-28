@@ -8,7 +8,7 @@ use crate::{
     geometry::{square::Square, unitcube::UnitCube},
     na::Translation3,
     renderer::Renderer,
-    types::*,
+    types::prelude::*,
     vulkan::VulkanApp,
 };
 use alga::general::SubsetOf;

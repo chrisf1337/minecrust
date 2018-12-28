@@ -4,8 +4,7 @@ pub mod rectangle;
 pub mod square;
 pub mod unitcube;
 
-use crate::geometry::boundingbox::BoundingBox;
-use crate::types::*;
+use crate::{geometry::boundingbox::BoundingBox, types::prelude::*};
 
 pub trait PrimitiveGeometry {
     /// Vertices to be copied to a vertex buffer.

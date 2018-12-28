@@ -1,10 +1,11 @@
 mod color;
 mod text;
 mod vertex;
+pub mod prelude;
 
 pub use crate::types::{
     color::Color,
-    text::TextVertex,
+    text::{GlyphMetrics, TextVertex},
     vertex::{Vertex2f, Vertex3f},
 };
 

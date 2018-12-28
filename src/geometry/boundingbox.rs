@@ -1,5 +1,4 @@
-use crate::types::*;
-use crate::utils::pt3f;
+use crate::{types::prelude::*, utils::pt3f};
 use std::f32::INFINITY;
 
 #[derive(Clone, Copy, Debug)]

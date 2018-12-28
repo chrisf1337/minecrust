@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 use crate::utils::f32;
 
 pub fn min(p1: &Point3f, p2: &Point3f) -> Point3f {

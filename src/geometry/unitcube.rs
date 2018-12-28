@@ -1,6 +1,8 @@
-use crate::geometry::{square::Square, BoundingBox, PrimitiveGeometry};
 use crate::na::{Isometry, Rotation3, Translation3};
-use crate::types::*;
+use crate::{
+    geometry::{square::Square, BoundingBox, PrimitiveGeometry},
+    types::prelude::*,
+};
 use alga::general::SubsetOf;
 use std::f32::consts::{FRAC_PI_2, PI};
 

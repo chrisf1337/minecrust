@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 use crate::utils::f32;
 
 pub fn from_vec3f(v: Vector3f) -> Vector4f {

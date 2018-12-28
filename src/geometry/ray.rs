@@ -1,5 +1,7 @@
-use crate::geometry::boundingbox::BoundingBox;
-use crate::types::*;
+use crate::{
+    geometry::boundingbox::BoundingBox,
+    types::prelude::*,
+};
 use std::f32;
 use std::mem;
 

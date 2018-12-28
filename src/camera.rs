@@ -1,6 +1,6 @@
 use crate::{
     na::Unit,
-    types::*,
+    types::prelude::*,
     utils::vec3f::yaw_pitch_diff,
     utils::{pt3f, quat4f, vec3f},
 };

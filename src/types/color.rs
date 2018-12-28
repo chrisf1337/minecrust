@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 
 /// Color from 0.0 to 1.0.
 #[derive(Debug, Copy, Clone)]

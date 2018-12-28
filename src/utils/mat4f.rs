@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 use crate::utils::{mat3f, vec4f};
 use num_traits::identities::Zero;
 

@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 
 pub fn clerp(a: &UnitQuaternionf, b: &UnitQuaternionf, t: f32) -> UnitQuaternionf {
     if t <= 0.0 {

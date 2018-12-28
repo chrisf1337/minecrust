@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::{color::Color, prelude::*};
 use ash::vk;
 
 #[repr(C)]
@@ -55,5 +55,26 @@ impl TextVertex {
                 .offset(offset_of!(TextVertex, color) as u32)
                 .build(),
         ]
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GlyphMetrics {
+    pub width: f32,
+    pub height: f32,
+    pub bearing_x: f32,
+    pub bearing_y: f32,
+    pub advance: f32,
+}
+
+impl From<freetype::GlyphMetrics> for GlyphMetrics {
+    fn from(metrics: freetype::GlyphMetrics) -> GlyphMetrics {
+        GlyphMetrics {
+            width: metrics.width as f32 / 64.0,
+            height: metrics.height as f32 / 64.0,
+            bearing_x: metrics.horiBearingX as f32 / 64.0,
+            bearing_y: metrics.horiBearingY as f32 / 64.0,
+            advance: metrics.horiAdvance as f32 / 64.0,
+        }
     }
 }

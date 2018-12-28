@@ -1,6 +1,6 @@
 use crate::ecs::PrimitiveGeometryComponent;
 use crate::geometry::boundingbox::BoundingBox;
-use crate::types::*;
+use crate::types::prelude::*;
 use specs::{Component, Entity, ReadStorage};
 
 const CHILD_NODE_MAX_SIZE: usize = 8;

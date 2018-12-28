@@ -2,7 +2,7 @@ use crate::{
     game::GameState,
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
-    types::*,
+    types::{prelude::*, Color, GlyphMetrics, TextVertex},
     utils::{clamp, mat4f, NSEC_PER_SEC},
     vulkan::{
         buffer::Buffer,
@@ -119,7 +119,7 @@ pub struct VulkanApp {
 
     render_pass: vk::RenderPass,
 
-    glyph_metrics: Vec<freetype::GlyphMetrics>,
+    glyph_metrics: Vec<GlyphMetrics>,
     glyph_textures: Vec<Texture>,
 
     graphics_command_pool: vk::CommandPool,
@@ -334,7 +334,7 @@ impl VulkanApp {
                     base.new_texture_image_from_bytes(&pad_font_bytes(buffer), dimensions, 1)?;
 
                 base.glyph_textures.push(texture);
-                base.glyph_metrics.push(glyph.metrics());
+                base.glyph_metrics.push(glyph.metrics().into());
             }
 
             let texture = base.create_texture_image("assets/texture.jpg")?;
@@ -1242,13 +1242,31 @@ impl VulkanApp {
         let vertex_buffer = &mut self.ui_staging_vertex_buffers[index];
         let mut vertices: Vec<TextVertex> = vec![];
 
-        // let max_y_max = string.chars().collect::<Vec<char>>().max_by_key(|c| self.glyph_metrics[c as usize].);
+        let max_bearing_y = string
+            .chars()
+            .map(|c| self.glyph_metrics[c as usize].bearing_y)
+            .max_by(|x, y| x.partial_cmp(y).unwrap())
+            .expect("no max_bearing_y") as f32;
+        let baseline_y = pos.y - max_bearing_y;
 
         for ch in string.chars() {
-            let metrics = self.glyph_metrics[ch as usize];
+            let metrics = &self.glyph_metrics[ch as usize];
             let quad = [
-                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
-                TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
+                TextVertex::new(
+                    ch as usize,
+                    Point2f::new(pos.x + metrics.bearing_x, baseline_y - metrics.bearing_y),
+                    Point2f::new(0.0, 0.0),
+                    color,
+                ),
+                TextVertex::new(
+                    ch as usize,
+                    Point2f::new(
+                        pos.x + metrics.bearing_x,
+                        baseline_y - metrics.bearing_y + metrics.height,
+                    ),
+                    Point2f::new(0.0, 0.0),
+                    color,
+                ),
                 TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
                 TextVertex::new(ch as usize, pos, Point2f::new(0.0, 0.0), color),
             ];

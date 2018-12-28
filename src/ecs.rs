@@ -6,7 +6,7 @@ use crate::{
         PrimitiveGeometry,
     },
     renderer::{RenderData, Renderer},
-    types::*,
+    types::prelude::*,
     utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC},
 };
 use specs::prelude::*;

@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::types::prelude::*;
 use crate::utils::f32;
 use std::f32::consts::PI;
 
