@@ -17,6 +17,8 @@ use std::{
 };
 use winit::VirtualKeyCode;
 
+const FRAME_TIME_SAMPLE_INTERVAL: f32 = 0.25;
+
 #[derive(Debug)]
 pub struct TransformComponent {
     pub transform: Transform3f,
@@ -152,24 +154,27 @@ impl<'a> System<'a> for RenderSystem {
             ref pressed_keys,
             ref mouse_delta,
             ref elapsed_time,
-            ref frame_time_delta,
+            ref frame_time,
             ref mut camera_animation,
+            ref mut fps_last_sampled_time,
+            ref mut fps_sample,
         } = game_state;
+
+        let elapsed_time = *elapsed_time;
+        let frame_time = *frame_time;
 
         let d_yaw = mouse_delta.0 as f32 / 500.0;
         let d_pitch = mouse_delta.1 as f32 / 500.0;
-        let frame_time_delta_f = frame_time_delta.as_nanos() as f32 / 1_000_000_000.0f32;
-        let elapsed_time_f = elapsed_time.as_nanos() as f32 / NSEC_PER_SEC as f32;
         let mut camera_animation_finished = false;
         if let Some(camera_animation) = camera_animation {
             // Check if animation has expired
-            if elapsed_time_f >= camera_animation.end_time() {
+            if elapsed_time >= camera_animation.end_time() {
                 camera.pos = camera_animation.end_pos;
                 camera.pitch_q = camera_animation.end_pitch_q;
                 camera.yaw_q = camera_animation.end_yaw_q;
                 camera_animation_finished = true;
             } else {
-                let (pos, yaw_q, pitch_q) = camera_animation.at(elapsed_time_f);
+                let (pos, yaw_q, pitch_q) = camera_animation.at(elapsed_time);
                 camera.pos = pos;
                 camera.pitch_q = pitch_q;
                 camera.yaw_q = yaw_q;
@@ -181,7 +186,7 @@ impl<'a> System<'a> for RenderSystem {
         if camera_animation_finished {
             *camera_animation = None;
         }
-        let camera_speed = 3.0 * frame_time_delta_f;
+        let camera_speed = 3.0 * frame_time;
         for keycode in pressed_keys.keys() {
             match keycode {
                 VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),
@@ -203,8 +208,15 @@ impl<'a> System<'a> for RenderSystem {
             vertices.extend(geometry.vtx_data(&transform.transform));
         }
 
+        if elapsed_time >= *fps_last_sampled_time + FRAME_TIME_SAMPLE_INTERVAL {
+            *fps_last_sampled_time = elapsed_time;
+            *fps_sample = 1.0 / frame_time;
+        }
+
+        let fps = *fps_sample;
+
         renderer
-            .draw_frame(&game_state, &RenderData { vertices }, *resized)
+            .draw_frame(&game_state, &RenderData { vertices, fps }, *resized)
             .expect("draw_frame()");
     }
 }

@@ -36,4 +36,5 @@ pub trait Renderer {
 
 pub struct RenderData {
     pub vertices: Vec<Vertex3f>,
+    pub fps: f32,
 }

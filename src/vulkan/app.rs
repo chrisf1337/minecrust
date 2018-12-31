@@ -109,6 +109,9 @@ fn pad_font_bytes(bytes: Vec<u8>) -> Vec<u8> {
 pub struct VulkanApp {
     pub core: VulkanCore,
 
+    screen_width: u32,
+    screen_height: u32,
+
     surface_format: vk::SurfaceFormatKHR,
     swapchain_extent: vk::Extent2D,
     swapchain_handle: vk::SwapchainKHR,
@@ -222,6 +225,9 @@ impl VulkanApp {
                 current_frame: 0,
                 core,
 
+                screen_width,
+                screen_height,
+
                 surface_format: Default::default(),
                 render_pass: Default::default(),
                 swapchain_extent: Default::default(),
@@ -316,7 +322,7 @@ impl VulkanApp {
             // fonts
             let ft_lib = freetype::Library::init()?;
             let face = ft_lib.new_face("assets/fonts/SourceCodePro-Regular.ttf", 0)?;
-            face.set_pixel_sizes(0, 100)?;
+            face.set_pixel_sizes(0, 96)?;
 
             for c in 0..=255u8 {
                 let c = c as char;
@@ -443,7 +449,7 @@ impl VulkanApp {
         let present_mode = present_modes
             .iter()
             .cloned()
-            .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
+            .find(|&mode| mode == vk::PresentModeKHR::FIFO)
             .unwrap_or(vk::PresentModeKHR::FIFO);
 
         let swapchain_ci = vk::SwapchainCreateInfoKHR::builder()
@@ -1088,15 +1094,6 @@ impl VulkanApp {
         Ok(cmd_buf)
     }
 
-    unsafe fn update_ui_vertex_buffer(
-        &mut self,
-        index: usize,
-        vertices: &[TextVertex],
-    ) -> VkResult<()> {
-        self.ui_staging_vertex_buffers[index].copy_data(vertices)?;
-        Ok(())
-    }
-
     unsafe fn new_transfer_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
         let cmd_buf = if let Some(cmd_buf) = self.transfer_cmd_bufs[index] {
             cmd_buf
@@ -1242,27 +1239,32 @@ impl VulkanApp {
         assert!(!string.contains('\n'));
 
         let mut vertices: Vec<TextVertex> = vec![];
+        let scale = scale * 0.5;
 
         let max_bearing_y = string
             .chars()
             .map(|c| self.glyph_metrics[c as usize].bearing_y)
             .max_by(|x, y| x.partial_cmp(y).unwrap())
-            .expect("no max_bearing_y") as f32;
+            .expect("no max_bearing_y") as f32
+            * scale;
         let baseline_y = pos.y + max_bearing_y;
 
         for ch in string.chars() {
             let metrics = &self.glyph_metrics[ch as usize];
             let left_top = TextVertex::new(
                 ch as usize,
-                Point2f::new(pos.x + metrics.bearing_x, baseline_y - metrics.bearing_y),
+                Point2f::new(
+                    pos.x + metrics.bearing_x * scale,
+                    baseline_y - metrics.bearing_y * scale,
+                ),
                 Point2f::new(0.0, 0.0),
                 color,
             );
             let left_bottom = TextVertex::new(
                 ch as usize,
                 Point2f::new(
-                    pos.x + metrics.bearing_x,
-                    baseline_y - metrics.bearing_y + metrics.height,
+                    pos.x + metrics.bearing_x * scale,
+                    baseline_y + (metrics.height - metrics.bearing_y) * scale,
                 ),
                 Point2f::new(0.0, 1.0),
                 color,
@@ -1270,8 +1272,8 @@ impl VulkanApp {
             let right_bottom = TextVertex::new(
                 ch as usize,
                 Point2f::new(
-                    pos.x + metrics.bearing_x + metrics.width,
-                    baseline_y - metrics.bearing_y + metrics.height,
+                    pos.x + (metrics.bearing_x + metrics.width) * scale,
+                    baseline_y + (metrics.height - metrics.bearing_y) * scale,
                 ),
                 Point2f::new(1.0, 1.0),
                 color,
@@ -1279,8 +1281,8 @@ impl VulkanApp {
             let right_top = TextVertex::new(
                 ch as usize,
                 Point2f::new(
-                    pos.x + metrics.bearing_x + metrics.width,
-                    baseline_y - metrics.bearing_y,
+                    pos.x + (metrics.bearing_x + metrics.width) * scale,
+                    baseline_y - metrics.bearing_y * scale,
                 ),
                 Point2f::new(1.0, 0.0),
                 color,
@@ -1294,7 +1296,7 @@ impl VulkanApp {
                 right_bottom,
                 right_top,
             ]);
-            pos.x += metrics.advance;
+            pos.x += metrics.advance * scale;
         }
 
         let vertex_buffer = &mut self.ui_staging_vertex_buffers[index];
@@ -1310,7 +1312,9 @@ impl VulkanApp {
                 width: screen_width,
                 height: screen_height,
             } = self.core.window.get_inner_size().unwrap();
-            self.create_swapchain(screen_width as u32, screen_height as u32)?;
+            self.screen_width = screen_width as u32;
+            self.screen_height = screen_height as u32;
+            self.create_swapchain(self.screen_width, self.screen_height)?;
 
             self.create_render_pass()?;
             self.create_graphics_pipeline()?;
@@ -2432,7 +2436,7 @@ impl Renderer for VulkanApp {
     fn draw_frame(
         &mut self,
         game_state: &GameState,
-        render_data: &RenderData,
+        RenderData { vertices, fps }: &RenderData,
         resized: bool,
     ) -> RendererResult<()> {
         unsafe {
@@ -2481,14 +2485,14 @@ impl Renderer for VulkanApp {
                     command_buffer.submit(&[self.semaphore])?;
 
                     // graphics
-                    self.update_graphics_vertex_buffer(image_index, &render_data.vertices)?;
+                    self.update_graphics_vertex_buffer(image_index, vertices)?;
 
                     // text
                     self.draw_text(
                         image_index,
-                        "Hello world",
-                        Point2f::new(100.0, 100.0),
-                        1.0,
+                        &format!("{:.0}", fps),
+                        Point2f::new(self.screen_width as f32 - 50.0, 10.0),
+                        0.5,
                         Color::new(1.0, 0.0, 0.0),
                     )?;
 

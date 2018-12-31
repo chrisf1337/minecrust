@@ -9,6 +9,7 @@ use crate::{
     na::Translation3,
     renderer::Renderer,
     types::prelude::*,
+    utils::NSEC_PER_SEC,
     vulkan::VulkanApp,
 };
 use alga::general::SubsetOf;
@@ -28,9 +29,16 @@ pub struct GameState {
 
     pub camera: Camera,
     pub pressed_keys: HashMap<VirtualKeyCode, usize>,
+    /// In pixels?
     pub mouse_delta: (f64, f64),
-    pub elapsed_time: Duration,
-    pub frame_time_delta: Duration,
+    /// In seconds
+    pub elapsed_time: f32,
+    /// In seconds
+    pub frame_time: f32,
+    /// In seconds
+    pub fps_last_sampled_time: f32,
+    /// In frames per second
+    pub fps_sample: f32,
     pub camera_animation: Option<CameraAnimation>,
 }
 
@@ -47,8 +55,10 @@ impl<'a, 'b> Game<'a, 'b> {
             camera: Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin()),
             pressed_keys: HashMap::new(),
             mouse_delta: (0.0, 0.0),
-            elapsed_time: Duration::default(),
-            frame_time_delta: Duration::default(),
+            elapsed_time: 0.0,
+            frame_time: 0.0,
+            fps_sample: 0.0,
+            fps_last_sampled_time: 0.0,
             camera_animation: None,
         };
         let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
@@ -130,7 +140,7 @@ impl<'a, 'b> Game<'a, 'b> {
         while running {
             let mut resized = false;
             let current_frame_time = SystemTime::now();
-            let frame_time_delta = current_frame_time.duration_since(last_frame_time)?;
+            let frame_time = current_frame_time.duration_since(last_frame_time)?;
             last_frame_time = current_frame_time;
             let mut mouse_delta = (0.0, 0.0);
             let mut new_cursor_grabbed = old_cursor_grabbed;
@@ -198,8 +208,8 @@ impl<'a, 'b> Game<'a, 'b> {
                     state.mouse_delta = (0.0, 0.0);
                 }
 
-                state.elapsed_time = start_time.elapsed()?;
-                state.frame_time_delta = frame_time_delta;
+                state.elapsed_time = start_time.elapsed()?.as_nanos() as f32 / NSEC_PER_SEC as f32;
+                state.frame_time = frame_time.as_nanos() as f32 / NSEC_PER_SEC as f32;
                 state.resized = resized;
             }
             self.dispatcher.dispatch(&self.world.res);
