@@ -30,34 +30,6 @@ const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 1 << 20;
 const N_GLYPH_TEXTURES: usize = 256;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
-struct UniformBufferObject {
-    pub model: Transform3f,
-    pub view: Matrix4f,
-    pub proj: Matrix4f,
-}
-
-impl UniformBufferObject {
-    fn to_vec(&self) -> Vec<f32> {
-        let mut v = vec![];
-        v.extend(self.model.to_homogeneous().as_slice());
-        v.extend(self.view.as_slice());
-        v.extend(self.proj.as_slice());
-        v
-    }
-}
-
-impl Default for UniformBufferObject {
-    fn default() -> Self {
-        UniformBufferObject {
-            model: Transform3f::identity(),
-            view: Matrix4f::identity(),
-            proj: Matrix4f::identity(),
-        }
-    }
-}
-
-#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct UiUniforms {
     pub screen_space_normalize_mat: Matrix4f,
@@ -154,9 +126,6 @@ pub struct VulkanApp {
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
     transfer_ownership_semaphores: Vec<vk::Semaphore>,
-
-    uniform_buffers: Vec<vk::Buffer>,
-    uniform_buffers_memory: Vec<vk::DeviceMemory>,
 
     ui_uniform_buffers: Vec<Buffer<UiUniforms>>,
     descriptor_pool: vk::DescriptorPool,
@@ -267,8 +236,6 @@ impl VulkanApp {
                 take_ownership_cmd_buffers: Default::default(),
                 transfer_ownership_semaphores: Default::default(),
 
-                uniform_buffers: Default::default(),
-                uniform_buffers_memory: Default::default(),
                 ui_uniform_buffers: Default::default(),
 
                 descriptor_pool: Default::default(),
@@ -352,7 +319,6 @@ impl VulkanApp {
             base.textures
                 .insert("cobblestone".to_owned(), cobblestone_texture);
 
-            base.create_uniform_buffers()?;
             base.create_buffers()?;
 
             base.create_descriptor_pool()?;
@@ -1902,20 +1868,6 @@ impl VulkanApp {
         Ok(())
     }
 
-    unsafe fn create_uniform_buffers(&mut self) -> VkResult<()> {
-        let buffer_size = std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize;
-        for _ in 0..self.swapchain_len {
-            let (uniform_buffer, uniform_buffer_memory) = self.core.create_buffer(
-                buffer_size,
-                vk::BufferUsageFlags::UNIFORM_BUFFER,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?;
-            self.uniform_buffers.push(uniform_buffer);
-            self.uniform_buffers_memory.push(uniform_buffer_memory);
-        }
-        Ok(())
-    }
-
     unsafe fn create_sync_objects(&mut self) -> VkResult<()> {
         let semaphore_ci = vk::SemaphoreCreateInfo::builder().build();
         let fence_ci = vk::FenceCreateInfo::builder()
@@ -2003,47 +1955,6 @@ impl VulkanApp {
         None
     }
 
-    unsafe fn update_uniform_buffer(&self, current_image: usize) -> VkResult<()> {
-        let time = SystemTime::now().duration_since(self.start_time).unwrap();
-        let time_f = time.as_nanos() as f32 / NSEC_PER_SEC as f32;
-        let mut ubo = UniformBufferObject::default();
-        ubo.model = Transform3f::identity();
-        // ubo.model =
-        //     Rotation3f::from_axis_angle(&Vector3f::y_axis(), time_f * std::f32::consts::FRAC_PI_2)
-        //         .to_superset();
-        ubo.view = Matrix4f::look_at_rh(
-            &Point3f::new(0.0, 1.0, 1.0),
-            &Point3f::origin(),
-            &Vector3f::y_axis(),
-        );
-        let LogicalSize { width, height } = self.core.window.get_inner_size().unwrap();
-        // See https://matthewwellings.com/blog/the-new-vulkan-coordinate-system/
-        let mut flip_mat = Matrix4f::from_diagonal(&Vector4f::new(1.0, -1.0, 0.5, 1.0));
-        flip_mat[(2, 3)] = 0.5;
-        ubo.proj = flip_mat
-            * Perspective3::new(
-                width as f32 / height as f32,
-                f32::to_radians(45.0),
-                0.1,
-                100.0,
-            )
-            .to_homogeneous();
-
-        let data = self.core.device.map_memory(
-            self.uniform_buffers_memory[current_image],
-            0,
-            std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize,
-            vk::MemoryMapFlags::empty(),
-        )? as *mut f32;
-        let v = ubo.to_vec();
-        std::ptr::copy_nonoverlapping(v.as_ptr(), data, v.len());
-        self.core
-            .device
-            .unmap_memory(self.uniform_buffers_memory[current_image]);
-
-        Ok(())
-    }
-
     unsafe fn update_ui_uniform_buffer(&mut self, index: usize) -> VkResult<()> {
         let uniform_buf = &mut self.ui_uniform_buffers[index];
         uniform_buf.copy_data(&[UiUniforms::new(self.screen_space_normalize_mat)])?;
@@ -2085,26 +1996,13 @@ impl VulkanApp {
             .device
             .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
 
-        for (index, &uniform_buffer) in self.uniform_buffers.iter().enumerate() {
-            let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-                .buffer(uniform_buffer)
-                .offset(0)
-                .range(std::mem::size_of::<UniformBufferObject>() as vk::DeviceSize)
-                .build();
-            let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_sets[index])
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&[descriptor_buffer_info])
-                .build();
-
+        for &ds in self.descriptor_sets.iter() {
             // binding 1: sampler
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
                 .sampler(self.texture_sampler)
                 .build();
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_sets[index])
+                .dst_set(ds)
                 .dst_binding(1)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::SAMPLER)
@@ -2118,7 +2016,7 @@ impl VulkanApp {
                 .image_view(cobblestone_texture.view)
                 .build();
             let texture_write_descriptor_set = vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_sets[index])
+                .dst_set(ds)
                 .dst_binding(2)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
@@ -2126,11 +2024,7 @@ impl VulkanApp {
                 .build();
 
             self.core.device.update_descriptor_sets(
-                &[
-                    buffer_write_descriptor_set,
-                    sampler_write_descriptor_set,
-                    texture_write_descriptor_set,
-                ],
+                &[sampler_write_descriptor_set, texture_write_descriptor_set],
                 &[],
             );
         }
@@ -2379,13 +2273,6 @@ impl Drop for VulkanApp {
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
 
-            for &uniform_buffer in &self.uniform_buffers {
-                self.core.device.destroy_buffer(uniform_buffer, None);
-            }
-            for &uniform_buffer_memory in &self.uniform_buffers_memory {
-                self.core.device.free_memory(uniform_buffer_memory, None);
-            }
-
             for buf in &mut self.ui_staging_vertex_buffers {
                 buf.deinit();
             }
@@ -2465,7 +2352,6 @@ impl Renderer for VulkanApp {
             ) {
                 Ok((image_index, _)) => {
                     let image_index = image_index as usize;
-                    self.update_uniform_buffer(image_index)?;
                     self.update_ui_uniform_buffer(image_index)?;
 
                     let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];

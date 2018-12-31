@@ -50,15 +50,25 @@ pub struct Game<'a, 'b> {
 
 impl<'a, 'b> Game<'a, 'b> {
     pub fn new(screen_width: u32, screen_height: u32) -> Result<Game<'a, 'b>, Error> {
+        let camera = Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin());
+        // let camera_animation = CameraAnimation::new(
+        //     &camera,
+        //     Point3f::new(1.0, -1.0, 3.0),
+        //     &Vector3f::new(0.0, 1.0, -3.0),
+        //     1.0,
+        //     1.0,
+        // );
+
         let state = GameState {
             resized: false,
-            camera: Camera::new_with_target(Point3f::new(0.0, 0.0, 3.0), Point3f::origin()),
+            camera,
             pressed_keys: HashMap::new(),
             mouse_delta: (0.0, 0.0),
             elapsed_time: 0.0,
             frame_time: 0.0,
             fps_sample: 0.0,
             fps_last_sampled_time: 0.0,
+            // camera_animation: Some(camera_animation),
             camera_animation: None,
         };
         let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
