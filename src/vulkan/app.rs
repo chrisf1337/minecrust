@@ -3,7 +3,7 @@ use crate::{
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
     types::{prelude::*, Color, GlyphMetrics, TextVertex},
-    utils::{clamp, mat4f, NSEC_PER_SEC},
+    utils::{clamp, mat4f},
     vulkan::{
         buffer::Buffer,
         error::{VulkanError, VulkanResult},
@@ -20,9 +20,7 @@ use ash::{
 use byteorder::ByteOrder;
 use byteorder::LittleEndian;
 use image;
-use std::{
-    collections::HashMap, ffi::CString, fs::File, io::prelude::*, path::Path, time::SystemTime,
-};
+use std::{collections::HashMap, ffi::CString, fs::File, io::prelude::*, path::Path};
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
 const MAX_FRAMES_IN_FLIGHT: usize = 5;
@@ -115,33 +113,33 @@ pub struct VulkanApp {
     graphics_vertex_buffers: Vec<Buffer<TextVertex>>,
     graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
-    ui_pipeline: vk::Pipeline,
-    ui_pipeline_layout: vk::PipelineLayout,
-    td_ui_pipeline: vk::Pipeline,
-    td_ui_pipeline_layout: vk::PipelineLayout,
+    text_pipeline: vk::Pipeline,
+    text_pipeline_layout: vk::PipelineLayout,
+    selection_pipeline: vk::Pipeline,
+    selection_pipeline_layout: vk::PipelineLayout,
 
-    ui_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
-    ui_vertex_buffers: Vec<Buffer<TextVertex>>,
-    ui_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
-    td_ui_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
-    td_ui_vertex_buffers: Vec<Buffer<TextVertex>>,
-    td_ui_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    text_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
+    text_vertex_buffers: Vec<Buffer<TextVertex>>,
+    text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    selection_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
+    selection_vertex_buffers: Vec<Buffer<TextVertex>>,
+    selection_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
     transfer_ownership_semaphores: Vec<vk::Semaphore>,
 
-    ui_uniform_buffers: Vec<Buffer<UiUniforms>>,
+    text_uniform_buffers: Vec<Buffer<UiUniforms>>,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
-    ui_descriptor_sets: Vec<vk::DescriptorSet>,
-    ui_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    text_descriptor_sets: Vec<vk::DescriptorSet>,
+    text_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
 
     textures: HashMap<String, Texture>,
     texture_sampler: vk::Sampler,
-    ui_text_sampler: vk::Sampler,
+    text_text_sampler: vk::Sampler,
 
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
@@ -152,8 +150,6 @@ pub struct VulkanApp {
     color_image: vk::Image,
     color_image_memory: vk::DeviceMemory,
     color_image_view: vk::ImageView,
-
-    start_time: SystemTime,
 
     view_mat: Matrix4f,
     proj_mat: Matrix4f,
@@ -213,10 +209,10 @@ impl VulkanApp {
 
                 graphics_pipeline_layout: Default::default(),
                 graphics_pipeline: Default::default(),
-                ui_pipeline_layout: Default::default(),
-                ui_pipeline: Default::default(),
-                td_ui_pipeline_layout: Default::default(),
-                td_ui_pipeline: Default::default(),
+                text_pipeline_layout: Default::default(),
+                text_pipeline: Default::default(),
+                selection_pipeline_layout: Default::default(),
+                selection_pipeline: Default::default(),
 
                 glyph_metrics: Default::default(),
                 glyph_textures: Default::default(),
@@ -234,29 +230,29 @@ impl VulkanApp {
                 graphics_vertex_buffers: Default::default(),
                 graphics_draw_cmd_bufs: Default::default(),
 
-                ui_staging_vertex_buffers: Default::default(),
-                ui_vertex_buffers: Default::default(),
-                ui_draw_cmd_bufs: Default::default(),
-                td_ui_staging_vertex_buffers: Default::default(),
-                td_ui_vertex_buffers: Default::default(),
-                td_ui_draw_cmd_bufs: Default::default(),
+                text_staging_vertex_buffers: Default::default(),
+                text_vertex_buffers: Default::default(),
+                text_draw_cmd_bufs: Default::default(),
+                selection_staging_vertex_buffers: Default::default(),
+                selection_vertex_buffers: Default::default(),
+                selection_draw_cmd_bufs: Default::default(),
 
                 render_pass_cmd_bufs: Default::default(),
                 transfer_cmd_bufs: Default::default(),
                 take_ownership_cmd_buffers: Default::default(),
                 transfer_ownership_semaphores: Default::default(),
 
-                ui_uniform_buffers: Default::default(),
+                text_uniform_buffers: Default::default(),
 
                 descriptor_pool: Default::default(),
                 descriptor_sets: Default::default(),
                 descriptor_set_layouts: Default::default(),
-                ui_descriptor_sets: Default::default(),
-                ui_descriptor_set_layouts: Default::default(),
+                text_descriptor_sets: Default::default(),
+                text_descriptor_set_layouts: Default::default(),
 
                 textures: HashMap::default(),
                 texture_sampler: Default::default(),
-                ui_text_sampler: Default::default(),
+                text_text_sampler: Default::default(),
 
                 depth_image: Default::default(),
                 depth_image_memory: Default::default(),
@@ -267,8 +263,6 @@ impl VulkanApp {
                 color_image_view: Default::default(),
 
                 msaa_samples: Default::default(),
-
-                start_time: SystemTime::now(),
 
                 semaphore,
 
@@ -288,7 +282,7 @@ impl VulkanApp {
             base.create_render_pass()?;
             base.create_descriptor_set_layouts()?;
             base.create_graphics_pipeline()?;
-            base.create_ui_pipeline()?;
+            base.create_text_pipeline()?;
 
             base.create_command_pools()?;
 
@@ -466,7 +460,127 @@ impl VulkanApp {
         Ok(())
     }
 
-    unsafe fn create_ui_pipeline(&mut self) -> VulkanResult<()> {
+    unsafe fn create_graphics_pipeline(&mut self) -> VulkanResult<()> {
+        let vert_module = self.create_shader_module_from_file("src/shaders/graphics-vert.spv")?;
+        let frag_module = self.create_shader_module_from_file("src/shaders/graphics-frag.spv")?;
+        let shader_stage_name = CString::new("main")?;
+        let vert_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vert_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let frag_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(frag_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
+
+        let vertex_binding_descriptions = [Vertex3f::binding_description()];
+        let vertex_attribute_descriptions = Vertex3f::attribute_descriptions();
+
+        let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions)
+            .build();
+
+        let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .primitive_restart_enable(false);
+        let viewport = vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(self.swapchain_extent.width as f32)
+            .height(self.swapchain_extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0)
+            .build();
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: self.swapchain_extent,
+        };
+        let viewports = [viewport];
+        let scissors = [scissor];
+        let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
+            .viewports(&viewports)
+            .scissors(&scissors)
+            .build();
+        let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::BACK)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false)
+            .build();
+        let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
+            .sample_shading_enable(true)
+            .rasterization_samples(self.msaa_samples)
+            .min_sample_shading(0.2)
+            .build();
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::all())
+            .blend_enable(false)
+            .build();
+        let attachments = [color_blend_attachment];
+        let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op_enable(false)
+            .attachments(&attachments)
+            .build();
+        // let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
+        // let dynamic_state_ci = vk::PipelineDynamicStateCreateInfo::builder()
+        //     .dynamic_states(&dynamic_states)
+        //     .build();
+        let depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false);
+        let push_constant_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .size(std::mem::size_of::<UniformPushConstants>() as u32)
+            .offset(0)
+            .build();
+        let push_constant_ranges = [push_constant_range];
+        let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(&self.descriptor_set_layouts)
+            .push_constant_ranges(&push_constant_ranges)
+            .build();
+        self.graphics_pipeline_layout = self
+            .core
+            .device
+            .create_pipeline_layout(&graphics_pipeline_layout_ci, None)?;
+
+        let pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&shader_stages)
+            .vertex_input_state(&vertex_input_state_ci)
+            .input_assembly_state(&input_assembly_state_ci)
+            .viewport_state(&viewport_state_ci)
+            .rasterization_state(&rasterizer_state_ci)
+            .multisample_state(&multisample_state_ci)
+            .color_blend_state(&color_blend_state_ci)
+            .depth_stencil_state(&depth_stencil_state_ci)
+            .layout(self.graphics_pipeline_layout)
+            .render_pass(self.render_pass)
+            .subpass(0)
+            .build();
+        let pipeline_cis = [pipeline_ci];
+        self.graphics_pipeline = self
+            .core
+            .device
+            .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
+            .map_err(|x| x.1)?[0];
+
+        // clean up shader modules
+        self.core.device.destroy_shader_module(vert_module, None);
+        self.core.device.destroy_shader_module(frag_module, None);
+
+        Ok(())
+    }
+
+    unsafe fn create_text_pipeline(&mut self) -> VulkanResult<()> {
         let vert_module = self.create_shader_module_from_file("src/shaders/text-vert.spv")?;
         let frag_module = self.create_shader_module_from_file("src/shaders/text-frag.spv")?;
         let shader_stage_name = CString::new("main")?;
@@ -551,7 +665,7 @@ impl VulkanApp {
             .build();
         let push_constant_ranges = [push_constant_range];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.ui_descriptor_set_layouts)
+            .set_layouts(&self.text_descriptor_set_layouts)
             .push_constant_ranges(&push_constant_ranges)
             .build();
         let pipeline_layout = self
@@ -583,8 +697,8 @@ impl VulkanApp {
         self.core.device.destroy_shader_module(vert_module, None);
         self.core.device.destroy_shader_module(frag_module, None);
 
-        self.ui_pipeline_layout = pipeline_layout;
-        self.ui_pipeline = pipeline;
+        self.text_pipeline_layout = pipeline_layout;
+        self.text_pipeline = pipeline;
 
         Ok(())
     }
@@ -712,13 +826,13 @@ impl VulkanApp {
         }
 
         // ui
-        let ui_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        let text_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
-        let immutable_samplers = [self.ui_text_sampler];
+        let immutable_samplers = [self.text_text_sampler];
         let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(1)
             .descriptor_type(vk::DescriptorType::SAMPLER)
@@ -733,7 +847,7 @@ impl VulkanApp {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
         let bindings = [
-            ui_uniforms_layout_binding,
+            text_uniforms_layout_binding,
             sampler_layout_binding,
             glyph_textures_binding,
         ];
@@ -742,132 +856,12 @@ impl VulkanApp {
             .build();
 
         for _ in &self.swapchain_images {
-            self.ui_descriptor_set_layouts.push(
+            self.text_descriptor_set_layouts.push(
                 self.core
                     .device
                     .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
             );
         }
-
-        Ok(())
-    }
-
-    unsafe fn create_graphics_pipeline(&mut self) -> VulkanResult<()> {
-        let vert_module = self.create_shader_module_from_file("src/shaders/triangle-vert.spv")?;
-        let frag_module = self.create_shader_module_from_file("src/shaders/triangle-frag.spv")?;
-        let shader_stage_name = CString::new("main")?;
-        let vert_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_module)
-            .name(shader_stage_name.as_c_str())
-            .build();
-        let frag_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-            .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(frag_module)
-            .name(shader_stage_name.as_c_str())
-            .build();
-        let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
-
-        let vertex_binding_descriptions = [Vertex3f::binding_description()];
-        let vertex_attribute_descriptions = Vertex3f::attribute_descriptions();
-
-        let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_binding_descriptions(&vertex_binding_descriptions)
-            .vertex_attribute_descriptions(&vertex_attribute_descriptions)
-            .build();
-
-        let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-            .primitive_restart_enable(false);
-        let viewport = vk::Viewport::builder()
-            .x(0.0)
-            .y(0.0)
-            .width(self.swapchain_extent.width as f32)
-            .height(self.swapchain_extent.height as f32)
-            .min_depth(0.0)
-            .max_depth(1.0)
-            .build();
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: self.swapchain_extent,
-        };
-        let viewports = [viewport];
-        let scissors = [scissor];
-        let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
-            .viewports(&viewports)
-            .scissors(&scissors)
-            .build();
-        let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
-            .depth_clamp_enable(false)
-            .rasterizer_discard_enable(false)
-            .polygon_mode(vk::PolygonMode::FILL)
-            .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-            .depth_bias_enable(false)
-            .build();
-        let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
-            .sample_shading_enable(true)
-            .rasterization_samples(self.msaa_samples)
-            .min_sample_shading(0.2)
-            .build();
-        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
-            .color_write_mask(vk::ColorComponentFlags::all())
-            .blend_enable(false)
-            .build();
-        let attachments = [color_blend_attachment];
-        let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
-            .logic_op_enable(false)
-            .attachments(&attachments)
-            .build();
-        // let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
-        // let dynamic_state_ci = vk::PipelineDynamicStateCreateInfo::builder()
-        //     .dynamic_states(&dynamic_states)
-        //     .build();
-        let depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
-            .depth_test_enable(true)
-            .depth_write_enable(true)
-            .depth_compare_op(vk::CompareOp::LESS)
-            .depth_bounds_test_enable(false)
-            .stencil_test_enable(false);
-        let push_constant_range = vk::PushConstantRange::builder()
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .size(std::mem::size_of::<UniformPushConstants>() as u32)
-            .offset(0)
-            .build();
-        let push_constant_ranges = [push_constant_range];
-        let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.descriptor_set_layouts)
-            .push_constant_ranges(&push_constant_ranges)
-            .build();
-        self.graphics_pipeline_layout = self
-            .core
-            .device
-            .create_pipeline_layout(&graphics_pipeline_layout_ci, None)?;
-
-        let pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
-            .stages(&shader_stages)
-            .vertex_input_state(&vertex_input_state_ci)
-            .input_assembly_state(&input_assembly_state_ci)
-            .viewport_state(&viewport_state_ci)
-            .rasterization_state(&rasterizer_state_ci)
-            .multisample_state(&multisample_state_ci)
-            .color_blend_state(&color_blend_state_ci)
-            .depth_stencil_state(&depth_stencil_state_ci)
-            .layout(self.graphics_pipeline_layout)
-            .render_pass(self.render_pass)
-            .subpass(0)
-            .build();
-        let pipeline_cis = [pipeline_ci];
-        self.graphics_pipeline = self
-            .core
-            .device
-            .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
-            .map_err(|x| x.1)?[0];
-
-        // clean up shader modules
-        self.core.device.destroy_shader_module(vert_module, None);
-        self.core.device.destroy_shader_module(frag_module, None);
 
         Ok(())
     }
@@ -1011,7 +1005,7 @@ impl VulkanApp {
                         .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
                         .src_queue_family_index(self.core.transfer_queue_family_index)
                         .dst_queue_family_index(self.core.graphics_queue_family_index)
-                        .buffer(self.ui_vertex_buffers[index].buffer)
+                        .buffer(self.text_vertex_buffers[index].buffer)
                         .build(),
                 ],
                 &[],
@@ -1025,8 +1019,8 @@ impl VulkanApp {
         Ok(())
     }
 
-    unsafe fn new_ui_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.ui_draw_cmd_bufs[index] {
+    unsafe fn new_text_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = if let Some(cmd_buf) = self.text_draw_cmd_bufs[index] {
             cmd_buf
         } else {
             let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
@@ -1055,26 +1049,26 @@ impl VulkanApp {
         self.core.device.cmd_bind_pipeline(
             cmd_buf,
             vk::PipelineBindPoint::GRAPHICS,
-            self.ui_pipeline,
+            self.text_pipeline,
         );
         self.core.device.cmd_bind_vertex_buffers(
             cmd_buf,
             0,
-            &[self.ui_vertex_buffers[index].buffer],
+            &[self.text_vertex_buffers[index].buffer],
             &[0],
         );
         self.core.device.cmd_bind_descriptor_sets(
             cmd_buf,
             vk::PipelineBindPoint::GRAPHICS,
-            self.ui_pipeline_layout,
+            self.text_pipeline_layout,
             0,
-            &self.ui_descriptor_sets,
+            &self.text_descriptor_sets,
             &[],
         );
 
         self.core.device.cmd_draw(
             cmd_buf,
-            self.ui_staging_vertex_buffers[index].len as u32,
+            self.text_staging_vertex_buffers[index].len as u32,
             1,
             0,
             0,
@@ -1082,7 +1076,7 @@ impl VulkanApp {
 
         self.core.device.end_command_buffer(cmd_buf)?;
 
-        self.ui_draw_cmd_bufs[index] = Some(cmd_buf);
+        self.text_draw_cmd_bufs[index] = Some(cmd_buf);
 
         Ok(cmd_buf)
     }
@@ -1118,21 +1112,21 @@ impl VulkanApp {
 
         self.core.device.cmd_copy_buffer(
             cmd_buf,
-            self.ui_staging_vertex_buffers[index].buffer,
-            self.ui_vertex_buffers[index].buffer,
+            self.text_staging_vertex_buffers[index].buffer,
+            self.text_vertex_buffers[index].buffer,
             // FIXME: need to change this when buf_len increases
             &[vk::BufferCopy::builder()
-                .size(self.ui_staging_vertex_buffers[index].buf_len)
+                .size(self.text_staging_vertex_buffers[index].buf_len)
                 .build()],
         );
 
         self.core.device.cmd_copy_buffer(
             cmd_buf,
-            self.td_ui_staging_vertex_buffers[index].buffer,
-            self.td_ui_vertex_buffers[index].buffer,
+            self.selection_staging_vertex_buffers[index].buffer,
+            self.selection_vertex_buffers[index].buffer,
             // FIXME: need to change this when buf_len increases
             &[vk::BufferCopy::builder()
-                .size(self.td_ui_staging_vertex_buffers[index].buf_len)
+                .size(self.selection_staging_vertex_buffers[index].buf_len)
                 .build()],
         );
 
@@ -1155,7 +1149,7 @@ impl VulkanApp {
                     .dst_access_mask(vk::AccessFlags::empty())
                     .src_queue_family_index(self.core.transfer_queue_family_index)
                     .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.ui_vertex_buffers[index].buffer)
+                    .buffer(self.text_vertex_buffers[index].buffer)
                     .build(),
             ],
             &[],
@@ -1197,9 +1191,9 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             )?;
             staging_buf.map()?;
-            self.ui_staging_vertex_buffers.push(staging_buf);
+            self.text_staging_vertex_buffers.push(staging_buf);
 
-            self.ui_vertex_buffers.push(Buffer::new(
+            self.text_vertex_buffers.push(Buffer::new(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -1213,9 +1207,9 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             )?;
             staging_buf.map()?;
-            self.td_ui_staging_vertex_buffers.push(staging_buf);
+            self.selection_staging_vertex_buffers.push(staging_buf);
 
-            self.td_ui_vertex_buffers.push(Buffer::new(
+            self.selection_vertex_buffers.push(Buffer::new(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -1229,12 +1223,12 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             )?;
             uniform_buf.map()?;
-            self.ui_uniform_buffers.push(uniform_buf);
+            self.text_uniform_buffers.push(uniform_buf);
         }
 
         self.graphics_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
-        self.ui_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
-        self.td_ui_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        self.text_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        self.selection_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
         self.transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.create_take_ownership_cmd_bufs()?;
@@ -1314,7 +1308,7 @@ impl VulkanApp {
             pos.x += metrics.advance * scale;
         }
 
-        let vertex_buffer = &mut self.ui_staging_vertex_buffers[index];
+        let vertex_buffer = &mut self.text_staging_vertex_buffers[index];
         vertex_buffer.copy_data(&vertices)?;
         Ok(())
     }
@@ -1333,7 +1327,7 @@ impl VulkanApp {
 
             self.create_render_pass()?;
             self.create_graphics_pipeline()?;
-            self.create_ui_pipeline()?;
+            self.create_text_pipeline()?;
             self.create_color_resources()?;
             self.create_depth_resources()?;
             self.create_framebuffers()?;
@@ -1757,7 +1751,7 @@ impl VulkanApp {
             .max_lod(100.0)
             .build();
         self.texture_sampler = self.core.device.create_sampler(&sampler_ci, None)?;
-        self.ui_text_sampler = self.core.device.create_sampler(
+        self.text_text_sampler = self.core.device.create_sampler(
             &vk::SamplerCreateInfo::builder()
                 .mag_filter(vk::Filter::LINEAR)
                 .min_filter(vk::Filter::LINEAR)
@@ -1994,8 +1988,8 @@ impl VulkanApp {
         None
     }
 
-    unsafe fn update_ui_uniform_buffer(&mut self, index: usize) -> VkResult<()> {
-        let uniform_buf = &mut self.ui_uniform_buffers[index];
+    unsafe fn update_text_uniform_buffer(&mut self, index: usize) -> VkResult<()> {
+        let uniform_buf = &mut self.text_uniform_buffers[index];
         uniform_buf.copy_data(&[UiUniforms::new(self.screen_space_normalize_mat)])?;
         Ok(())
     }
@@ -2071,15 +2065,15 @@ impl VulkanApp {
             );
         }
 
-        self.ui_descriptor_sets = self.core.device.allocate_descriptor_sets(
+        self.text_descriptor_sets = self.core.device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::builder()
                 .descriptor_pool(self.descriptor_pool)
-                .set_layouts(&self.ui_descriptor_set_layouts)
+                .set_layouts(&self.text_descriptor_set_layouts)
                 .build(),
         )?;
-        for (i, &ds) in self.ui_descriptor_sets.iter().enumerate() {
+        for (i, &ds) in self.text_descriptor_sets.iter().enumerate() {
             let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-                .buffer(self.ui_uniform_buffers[i].buffer)
+                .buffer(self.text_uniform_buffers[i].buffer)
                 .offset(0)
                 .range(std::mem::size_of::<UiUniforms>() as vk::DeviceSize)
                 .build();
@@ -2093,7 +2087,7 @@ impl VulkanApp {
                 .build();
 
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .sampler(self.ui_text_sampler)
+                .sampler(self.text_text_sampler)
                 .build();
             let image_info = [sampler_descriptor_image_info];
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
@@ -2269,15 +2263,17 @@ impl VulkanApp {
             .device
             .destroy_pipeline_layout(self.graphics_pipeline_layout, None);
 
-        self.core.device.destroy_pipeline(self.ui_pipeline, None);
+        self.core.device.destroy_pipeline(self.text_pipeline, None);
         self.core
             .device
-            .destroy_pipeline_layout(self.ui_pipeline_layout, None);
+            .destroy_pipeline_layout(self.text_pipeline_layout, None);
 
-        self.core.device.destroy_pipeline(self.td_ui_pipeline, None);
         self.core
             .device
-            .destroy_pipeline_layout(self.td_ui_pipeline_layout, None);
+            .destroy_pipeline(self.selection_pipeline, None);
+        self.core
+            .device
+            .destroy_pipeline_layout(self.selection_pipeline_layout, None);
 
         self.core.device.destroy_render_pass(self.render_pass, None);
         for &image_view in self.swapchain_image_views.iter() {
@@ -2307,7 +2303,9 @@ impl Drop for VulkanApp {
             }
 
             self.core.device.destroy_sampler(self.texture_sampler, None);
-            self.core.device.destroy_sampler(self.ui_text_sampler, None);
+            self.core
+                .device
+                .destroy_sampler(self.text_text_sampler, None);
             self.core
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
@@ -2316,26 +2314,26 @@ impl Drop for VulkanApp {
                     .device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
-            for &descriptor_set_layout in &self.ui_descriptor_set_layouts {
+            for &descriptor_set_layout in &self.text_descriptor_set_layouts {
                 self.core
                     .device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
 
-            for buf in &mut self.ui_staging_vertex_buffers {
+            for buf in &mut self.text_staging_vertex_buffers {
                 buf.deinit();
             }
-            for buf in &mut self.ui_vertex_buffers {
+            for buf in &mut self.text_vertex_buffers {
                 buf.deinit();
             }
-            for buf in &mut self.ui_uniform_buffers {
+            for buf in &mut self.text_uniform_buffers {
                 buf.deinit();
             }
 
-            for buf in &mut self.td_ui_staging_vertex_buffers {
+            for buf in &mut self.selection_staging_vertex_buffers {
                 buf.deinit();
             }
-            for buf in &mut self.td_ui_vertex_buffers {
+            for buf in &mut self.selection_vertex_buffers {
                 buf.deinit();
             }
 
@@ -2409,7 +2407,7 @@ impl Renderer for VulkanApp {
             ) {
                 Ok((image_index, _)) => {
                     let image_index = image_index as usize;
-                    self.update_ui_uniform_buffer(image_index)?;
+                    self.update_text_uniform_buffer(image_index)?;
 
                     let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
                     LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
@@ -2440,7 +2438,7 @@ impl Renderer for VulkanApp {
                     )?;
 
                     let transfer_cmd_buf = self.new_transfer_cmd_buf(image_index)?;
-                    let ui_draw_cmd_buf = self.new_ui_draw_cmd_buf(image_index)?;
+                    let text_draw_cmd_buf = self.new_text_draw_cmd_buf(image_index)?;
                     let graphics_draw_cmd_buf = self.new_graphics_draw_cmd_buf(image_index)?;
 
                     self.core.device.queue_submit(
@@ -2478,7 +2476,7 @@ impl Renderer for VulkanApp {
                     ];
                     let command_buffers = [self.new_render_pass_command_buffer(
                         image_index,
-                        &[graphics_draw_cmd_buf, ui_draw_cmd_buf],
+                        &[graphics_draw_cmd_buf, text_draw_cmd_buf],
                     )?];
                     let submit_info = vk::SubmitInfo::builder()
                         .wait_semaphores(&wait_semaphores)

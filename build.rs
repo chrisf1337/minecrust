@@ -1,32 +1,32 @@
 use std::process::Command;
 
 fn main() {
-    // triangle
+    // graphics
     if !Command::new("D:/VulkanSDK/1.1.85.0/Bin/glslangValidator.exe")
         .args(&[
             "-V",
-            "src/shaders/triangle.vert",
+            "src/shaders/graphics.vert",
             "-o",
-            "src/shaders/triangle-vert.spv",
+            "src/shaders/graphics-vert.spv",
         ])
         .status()
         .unwrap()
         .success()
     {
-        panic!("failed to compile triangle.vert");
+        panic!("failed to compile graphics.vert");
     }
     if !Command::new("D:/VulkanSDK/1.1.85.0/Bin/glslangValidator.exe")
         .args(&[
             "-V",
-            "src/shaders/triangle.frag",
+            "src/shaders/graphics.frag",
             "-o",
-            "src/shaders/triangle-frag.spv",
+            "src/shaders/graphics-frag.spv",
         ])
         .status()
         .unwrap()
         .success()
     {
-        panic!("failed to compile triangle.frag");
+        panic!("failed to compile graphics.frag");
     }
 
     // text
@@ -55,5 +55,33 @@ fn main() {
         .success()
     {
         panic!("failed to compile text.frag");
+    }
+
+    // selection
+    if !Command::new("D:/VulkanSDK/1.1.85.0/Bin/glslangValidator.exe")
+        .args(&[
+            "-V",
+            "src/shaders/selection.vert",
+            "-o",
+            "src/shaders/selection-vert.spv",
+        ])
+        .status()
+        .unwrap()
+        .success()
+    {
+        panic!("failed to compile selection.vert");
+    }
+    if !Command::new("D:/VulkanSDK/1.1.85.0/Bin/glslangValidator.exe")
+        .args(&[
+            "-V",
+            "src/shaders/selection.frag",
+            "-o",
+            "src/shaders/selection-frag.spv",
+        ])
+        .status()
+        .unwrap()
+        .success()
+    {
+        panic!("failed to compile selection.frag");
     }
 }
