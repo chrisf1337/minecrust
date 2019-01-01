@@ -123,16 +123,18 @@ impl VulkanCore {
                 .shader_clip_distance(true)
                 .sample_rate_shading(true)
                 .build();
+            let priorities = [1.0];
             let graphics_queue_ci = vk::DeviceQueueCreateInfo::builder()
                 .queue_family_index(graphics_queue_family_index)
-                .queue_priorities(&[1.0])
+                .queue_priorities(&priorities)
                 .build();
             let transfer_queue_ci = vk::DeviceQueueCreateInfo::builder()
                 .queue_family_index(transfer_queue_family_index)
-                .queue_priorities(&[1.0])
+                .queue_priorities(&priorities)
                 .build();
+            let queue_create_infos = [graphics_queue_ci, transfer_queue_ci];
             let device_ci = vk::DeviceCreateInfo::builder()
-                .queue_create_infos(&[graphics_queue_ci, transfer_queue_ci])
+                .queue_create_infos(&queue_create_infos)
                 .enabled_extension_names(&device_extension_names_raw)
                 .enabled_features(&features)
                 .build();

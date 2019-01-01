@@ -9,7 +9,9 @@ pub struct Buffer<T> {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
     pub capacity: vk::DeviceSize,
+    /// Number of elements in the buffer.
     pub len: usize,
+    /// `buf_len` = `len` * `size_of::<T>()`
     pub buf_len: vk::DeviceSize,
 
     pub ptr: *mut T,

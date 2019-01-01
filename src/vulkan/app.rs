@@ -117,10 +117,15 @@ pub struct VulkanApp {
 
     ui_pipeline: vk::Pipeline,
     ui_pipeline_layout: vk::PipelineLayout,
+    td_ui_pipeline: vk::Pipeline,
+    td_ui_pipeline_layout: vk::PipelineLayout,
 
     ui_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
     ui_vertex_buffers: Vec<Buffer<TextVertex>>,
     ui_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    td_ui_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
+    td_ui_vertex_buffers: Vec<Buffer<TextVertex>>,
+    td_ui_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
@@ -210,6 +215,8 @@ impl VulkanApp {
                 graphics_pipeline: Default::default(),
                 ui_pipeline_layout: Default::default(),
                 ui_pipeline: Default::default(),
+                td_ui_pipeline_layout: Default::default(),
+                td_ui_pipeline: Default::default(),
 
                 glyph_metrics: Default::default(),
                 glyph_textures: Default::default(),
@@ -230,6 +237,9 @@ impl VulkanApp {
                 ui_staging_vertex_buffers: Default::default(),
                 ui_vertex_buffers: Default::default(),
                 ui_draw_cmd_bufs: Default::default(),
+                td_ui_staging_vertex_buffers: Default::default(),
+                td_ui_vertex_buffers: Default::default(),
+                td_ui_draw_cmd_bufs: Default::default(),
 
                 render_pass_cmd_bufs: Default::default(),
                 transfer_cmd_bufs: Default::default(),
@@ -472,9 +482,11 @@ impl VulkanApp {
             .build();
         let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
 
+        let vertex_binding_descriptions = [TextVertex::binding_description()];
+        let vertex_attribute_descriptions = TextVertex::attribute_descriptions();
         let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_binding_descriptions(&[TextVertex::binding_description()])
-            .vertex_attribute_descriptions(&TextVertex::attribute_descriptions())
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions)
             .build();
         let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -491,9 +503,11 @@ impl VulkanApp {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: self.swapchain_extent,
         };
+        let viewports = [viewport];
+        let scissors = [scissor];
         let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
-            .viewports(&[viewport])
-            .scissors(&[scissor])
+            .viewports(&viewports)
+            .scissors(&scissors)
             .build();
         let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
             .depth_clamp_enable(false)
@@ -519,9 +533,10 @@ impl VulkanApp {
             .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
             .alpha_blend_op(vk::BlendOp::ADD)
             .build();
+        let attachments = [color_blend_attachment];
         let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op_enable(false)
-            .attachments(&[color_blend_attachment])
+            .attachments(&attachments)
             .build();
         let depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
             .depth_test_enable(false)
@@ -534,9 +549,10 @@ impl VulkanApp {
             .size(std::mem::size_of::<UniformPushConstants>() as u32)
             .offset(0)
             .build();
+        let push_constant_ranges = [push_constant_range];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&self.ui_descriptor_set_layouts)
-            .push_constant_ranges(&[push_constant_range])
+            .push_constant_ranges(&push_constant_ranges)
             .build();
         let pipeline_layout = self
             .core
@@ -556,10 +572,11 @@ impl VulkanApp {
             .render_pass(self.render_pass)
             .subpass(0)
             .build();
+        let pipeline_cis = [pipeline_ci];
         let pipeline = self
             .core
             .device
-            .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_ci], None)
+            .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
             .map_err(|x| x.1)?[0];
 
         // clean up shader modules
@@ -621,11 +638,13 @@ impl VulkanApp {
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .build();
 
+        let color_attachments = [color_attachment_ref];
+        let resolve_attachments = [color_attachment_resolve_ref];
         let subpass_description = vk::SubpassDescription::builder()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .color_attachments(&[color_attachment_ref])
+            .color_attachments(&color_attachments)
             .depth_stencil_attachment(&depth_attachment_ref)
-            .resolve_attachments(&[color_attachment_resolve_ref])
+            .resolve_attachments(&resolve_attachments)
             .build();
         let subpass_dependency = vk::SubpassDependency::builder()
             .src_subpass(vk::SUBPASS_EXTERNAL)
@@ -637,14 +656,17 @@ impl VulkanApp {
                 vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             )
             .build();
+        let attachments = [
+            color_attachment_description,
+            depth_attachment_description,
+            color_attachment_resolve,
+        ];
+        let subpasses = [subpass_description];
+        let dependencies = [subpass_dependency];
         let render_pass_ci = vk::RenderPassCreateInfo::builder()
-            .attachments(&[
-                color_attachment_description,
-                depth_attachment_description,
-                color_attachment_resolve,
-            ])
-            .subpasses(&[subpass_description])
-            .dependencies(&[subpass_dependency])
+            .attachments(&attachments)
+            .subpasses(&subpasses)
+            .dependencies(&dependencies)
             .build();
         self.render_pass = self.core.device.create_render_pass(&render_pass_ci, None)?;
         Ok(())
@@ -658,12 +680,13 @@ impl VulkanApp {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
+        let immutable_samplers = [self.texture_sampler];
         let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(1)
             .descriptor_type(vk::DescriptorType::SAMPLER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&[self.texture_sampler])
+            .immutable_samplers(&immutable_samplers)
             .build();
         let texture_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(2)
@@ -671,12 +694,13 @@ impl VulkanApp {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
+        let bindings = [
+            ubo_descriptor_set_layout_binding,
+            sampler_layout_binding,
+            texture_layout_binding,
+        ];
         let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&[
-                ubo_descriptor_set_layout_binding,
-                sampler_layout_binding,
-                texture_layout_binding,
-            ])
+            .bindings(&bindings)
             .build();
 
         for _ in &self.swapchain_images {
@@ -694,12 +718,13 @@ impl VulkanApp {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
+        let immutable_samplers = [self.ui_text_sampler];
         let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(1)
             .descriptor_type(vk::DescriptorType::SAMPLER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&[self.ui_text_sampler])
+            .immutable_samplers(&immutable_samplers)
             .build();
         let glyph_textures_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(2)
@@ -707,12 +732,13 @@ impl VulkanApp {
             .descriptor_count(N_GLYPH_TEXTURES as u32)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
+        let bindings = [
+            ui_uniforms_layout_binding,
+            sampler_layout_binding,
+            glyph_textures_binding,
+        ];
         let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&[
-                ui_uniforms_layout_binding,
-                sampler_layout_binding,
-                glyph_textures_binding,
-            ])
+            .bindings(&bindings)
             .build();
 
         for _ in &self.swapchain_images {
@@ -742,12 +768,12 @@ impl VulkanApp {
             .build();
         let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
 
-        let binding_description = Vertex3f::binding_description();
-        let attribute_descriptions = Vertex3f::attribute_descriptions();
+        let vertex_binding_descriptions = [Vertex3f::binding_description()];
+        let vertex_attribute_descriptions = Vertex3f::attribute_descriptions();
 
         let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_binding_descriptions(&[binding_description])
-            .vertex_attribute_descriptions(&attribute_descriptions)
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions)
             .build();
 
         let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
@@ -765,9 +791,11 @@ impl VulkanApp {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: self.swapchain_extent,
         };
+        let viewports = [viewport];
+        let scissors = [scissor];
         let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
-            .viewports(&[viewport])
-            .scissors(&[scissor])
+            .viewports(&viewports)
+            .scissors(&scissors)
             .build();
         let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
             .depth_clamp_enable(false)
@@ -787,9 +815,10 @@ impl VulkanApp {
             .color_write_mask(vk::ColorComponentFlags::all())
             .blend_enable(false)
             .build();
+        let attachments = [color_blend_attachment];
         let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op_enable(false)
-            .attachments(&[color_blend_attachment])
+            .attachments(&attachments)
             .build();
         // let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
         // let dynamic_state_ci = vk::PipelineDynamicStateCreateInfo::builder()
@@ -806,9 +835,10 @@ impl VulkanApp {
             .size(std::mem::size_of::<UniformPushConstants>() as u32)
             .offset(0)
             .build();
+        let push_constant_ranges = [push_constant_range];
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&self.descriptor_set_layouts)
-            .push_constant_ranges(&[push_constant_range])
+            .push_constant_ranges(&push_constant_ranges)
             .build();
         self.graphics_pipeline_layout = self
             .core
@@ -828,10 +858,11 @@ impl VulkanApp {
             .render_pass(self.render_pass)
             .subpass(0)
             .build();
+        let pipeline_cis = [pipeline_ci];
         self.graphics_pipeline = self
             .core
             .device
-            .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_ci], None)
+            .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
             .map_err(|x| x.1)?[0];
 
         // clean up shader modules
@@ -844,13 +875,14 @@ impl VulkanApp {
     unsafe fn create_framebuffers(&mut self) -> VkResult<()> {
         self.swapchain_framebuffers = vec![];
         for &swapchain_image_view in &self.swapchain_image_views {
+            let attachments = [
+                self.color_image_view,
+                self.depth_image_view,
+                swapchain_image_view,
+            ];
             let framebuffer_ci = vk::FramebufferCreateInfo::builder()
                 .render_pass(self.render_pass)
-                .attachments(&[
-                    self.color_image_view,
-                    self.depth_image_view,
-                    swapchain_image_view,
-                ])
+                .attachments(&attachments)
                 .width(self.swapchain_extent.width)
                 .height(self.swapchain_extent.height)
                 .layers(1)
@@ -904,6 +936,19 @@ impl VulkanApp {
             .device
             .begin_command_buffer(cmd_buf, &begin_info)?;
 
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.render_pass)
             .framebuffer(self.swapchain_framebuffers[index])
@@ -911,19 +956,7 @@ impl VulkanApp {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: self.swapchain_extent,
             })
-            .clear_values(&[
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.0, 0.0, 0.0, 0.0],
-                    },
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue {
-                        depth: 1.0,
-                        stencil: 0,
-                    },
-                },
-            ])
+            .clear_values(&clear_values)
             .build();
 
         self.core.device.cmd_begin_render_pass(
@@ -965,28 +998,22 @@ impl VulkanApp {
                 vk::PipelineStageFlags::VERTEX_INPUT,
                 vk::DependencyFlags::empty(),
                 &[],
-                &[vk::BufferMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::empty())
-                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                    .src_queue_family_index(self.core.transfer_queue_family_index)
-                    .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.graphics_vertex_buffers[index].buffer)
-                    .build()],
-                &[],
-            );
-            self.core.device.cmd_pipeline_barrier(
-                command_buffer,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::VERTEX_INPUT,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[vk::BufferMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::empty())
-                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                    .src_queue_family_index(self.core.transfer_queue_family_index)
-                    .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.ui_vertex_buffers[index].buffer)
-                    .build()],
+                &[
+                    vk::BufferMemoryBarrier::builder()
+                        .src_access_mask(vk::AccessFlags::empty())
+                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                        .src_queue_family_index(self.core.transfer_queue_family_index)
+                        .dst_queue_family_index(self.core.graphics_queue_family_index)
+                        .buffer(self.graphics_vertex_buffers[index].buffer)
+                        .build(),
+                    vk::BufferMemoryBarrier::builder()
+                        .src_access_mask(vk::AccessFlags::empty())
+                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                        .src_queue_family_index(self.core.transfer_queue_family_index)
+                        .dst_queue_family_index(self.core.graphics_queue_family_index)
+                        .buffer(self.ui_vertex_buffers[index].buffer)
+                        .build(),
+                ],
                 &[],
             );
 
@@ -1088,6 +1115,7 @@ impl VulkanApp {
                 .size(self.graphics_staging_vertex_buffers[index].buf_len)
                 .build()],
         );
+
         self.core.device.cmd_copy_buffer(
             cmd_buf,
             self.ui_staging_vertex_buffers[index].buffer,
@@ -1098,34 +1126,38 @@ impl VulkanApp {
                 .build()],
         );
 
-        self.core.device.cmd_pipeline_barrier(
+        self.core.device.cmd_copy_buffer(
             cmd_buf,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[vk::BufferMemoryBarrier::builder()
-                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                .dst_access_mask(vk::AccessFlags::empty())
-                .src_queue_family_index(self.core.transfer_queue_family_index)
-                .dst_queue_family_index(self.core.graphics_queue_family_index)
-                .buffer(self.graphics_vertex_buffers[index].buffer)
+            self.td_ui_staging_vertex_buffers[index].buffer,
+            self.td_ui_vertex_buffers[index].buffer,
+            // FIXME: need to change this when buf_len increases
+            &[vk::BufferCopy::builder()
+                .size(self.td_ui_staging_vertex_buffers[index].buf_len)
                 .build()],
-            &[],
         );
+
         self.core.device.cmd_pipeline_barrier(
             cmd_buf,
             vk::PipelineStageFlags::TRANSFER,
             vk::PipelineStageFlags::BOTTOM_OF_PIPE,
             vk::DependencyFlags::empty(),
             &[],
-            &[vk::BufferMemoryBarrier::builder()
-                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                .dst_access_mask(vk::AccessFlags::empty())
-                .src_queue_family_index(self.core.transfer_queue_family_index)
-                .dst_queue_family_index(self.core.graphics_queue_family_index)
-                .buffer(self.ui_vertex_buffers[index].buffer)
-                .build()],
+            &[
+                vk::BufferMemoryBarrier::builder()
+                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::empty())
+                    .src_queue_family_index(self.core.transfer_queue_family_index)
+                    .dst_queue_family_index(self.core.graphics_queue_family_index)
+                    .buffer(self.graphics_vertex_buffers[index].buffer)
+                    .build(),
+                vk::BufferMemoryBarrier::builder()
+                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::empty())
+                    .src_queue_family_index(self.core.transfer_queue_family_index)
+                    .dst_queue_family_index(self.core.graphics_queue_family_index)
+                    .buffer(self.ui_vertex_buffers[index].buffer)
+                    .build(),
+            ],
             &[],
         );
 
@@ -1174,6 +1206,22 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
 
+            let mut staging_buf = Buffer::new(
+                &self.core,
+                VERTEX_BUFFER_CAPCITY,
+                vk::BufferUsageFlags::TRANSFER_SRC,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            staging_buf.map()?;
+            self.td_ui_staging_vertex_buffers.push(staging_buf);
+
+            self.td_ui_vertex_buffers.push(Buffer::new(
+                &self.core,
+                VERTEX_BUFFER_CAPCITY,
+                vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )?);
+
             let mut uniform_buf = Buffer::new(
                 &self.core,
                 std::mem::size_of::<UiUniforms>() as vk::DeviceSize,
@@ -1186,6 +1234,7 @@ impl VulkanApp {
 
         self.graphics_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.ui_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        self.td_ui_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
         self.transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.create_take_ownership_cmd_bufs()?;
@@ -1377,15 +1426,6 @@ impl VulkanApp {
         self.graphics_draw_cmd_bufs[index] = Some(cmd_buf);
 
         Ok(cmd_buf)
-    }
-
-    unsafe fn update_graphics_vertex_buffer(
-        &mut self,
-        index: usize,
-        vertices: &[Vertex3f],
-    ) -> VkResult<()> {
-        self.graphics_staging_vertex_buffers[index].copy_data(vertices)?;
-        Ok(())
     }
 
     unsafe fn create_image(
@@ -1589,6 +1629,7 @@ impl VulkanApp {
             barrier.new_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
             barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
             barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
+
             self.core.device.cmd_pipeline_barrier(
                 command_buffer.command_buffer,
                 vk::PipelineStageFlags::TRANSFER,
@@ -1816,7 +1857,6 @@ impl VulkanApp {
             return Err(VulkanError::Str("unsupported layout transition".to_owned()));
         }
 
-        let barrier = barrier_builder.build();
         self.core.device.cmd_pipeline_barrier(
             command_buffer.command_buffer,
             source_stage,
@@ -1824,7 +1864,7 @@ impl VulkanApp {
             vk::DependencyFlags::empty(),
             &[],
             &[],
-            &[barrier],
+            &[barrier_builder.build()],
         );
 
         Ok(())
@@ -1838,31 +1878,30 @@ impl VulkanApp {
         width: u32,
         height: u32,
     ) -> VulkanResult<()> {
-        let region = vk::BufferImageCopy::builder()
-            .buffer_offset(0)
-            .buffer_row_length(0)
-            .buffer_image_height(0)
-            .image_subresource(
-                vk::ImageSubresourceLayers::builder()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(0)
-                    .base_array_layer(0)
-                    .layer_count(1)
-                    .build(),
-            )
-            .image_offset(vk::Offset3D::default())
-            .image_extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            })
-            .build();
         self.core.device.cmd_copy_buffer_to_image(
             command_buffer.command_buffer,
             buffer,
             image,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            &[region],
+            &[vk::BufferImageCopy::builder()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(
+                    vk::ImageSubresourceLayers::builder()
+                        .aspect_mask(vk::ImageAspectFlags::COLOR)
+                        .mip_level(0)
+                        .base_array_layer(0)
+                        .layer_count(1)
+                        .build(),
+                )
+                .image_offset(vk::Offset3D::default())
+                .image_extent(vk::Extent3D {
+                    width,
+                    height,
+                    depth: 1,
+                })
+                .build()],
         );
 
         Ok(())
@@ -1975,8 +2014,9 @@ impl VulkanApp {
             .ty(vk::DescriptorType::SAMPLED_IMAGE)
             .descriptor_count(self.swapchain_len as u32)
             .build();
+        let pool_sizes = [uniforms_pool_size, sampler_pool_size, texture_pool_size];
         let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&[uniforms_pool_size, sampler_pool_size, texture_pool_size])
+            .pool_sizes(&pool_sizes)
             .max_sets((self.swapchain_len * 2) as u32)
             .build();
         self.descriptor_pool = self
@@ -2001,12 +2041,13 @@ impl VulkanApp {
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
                 .sampler(self.texture_sampler)
                 .build();
+            let image_info = [sampler_descriptor_image_info];
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(ds)
                 .dst_binding(1)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::SAMPLER)
-                .image_info(&[sampler_descriptor_image_info])
+                .image_info(&image_info)
                 .build();
 
             // binding 2: image
@@ -2015,12 +2056,13 @@ impl VulkanApp {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(cobblestone_texture.view)
                 .build();
+            let image_info = [texture_descriptor_image_info];
             let texture_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(ds)
                 .dst_binding(2)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .image_info(&[texture_descriptor_image_info])
+                .image_info(&image_info)
                 .build();
 
             self.core.device.update_descriptor_sets(
@@ -2041,23 +2083,25 @@ impl VulkanApp {
                 .offset(0)
                 .range(std::mem::size_of::<UiUniforms>() as vk::DeviceSize)
                 .build();
+            let buffer_info = [descriptor_buffer_info];
             let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(ds)
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&[descriptor_buffer_info])
+                .buffer_info(&buffer_info)
                 .build();
 
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
                 .sampler(self.ui_text_sampler)
                 .build();
+            let image_info = [sampler_descriptor_image_info];
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
                 .dst_set(ds)
                 .dst_binding(1)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::SAMPLER)
-                .image_info(&[sampler_descriptor_image_info])
+                .image_info(&image_info)
                 .build();
 
             let mut image_infos = [Default::default(); N_GLYPH_TEXTURES];
@@ -2230,6 +2274,11 @@ impl VulkanApp {
             .device
             .destroy_pipeline_layout(self.ui_pipeline_layout, None);
 
+        self.core.device.destroy_pipeline(self.td_ui_pipeline, None);
+        self.core
+            .device
+            .destroy_pipeline_layout(self.td_ui_pipeline_layout, None);
+
         self.core.device.destroy_render_pass(self.render_pass, None);
         for &image_view in self.swapchain_image_views.iter() {
             self.core.device.destroy_image_view(image_view, None);
@@ -2279,13 +2328,21 @@ impl Drop for VulkanApp {
             for buf in &mut self.ui_vertex_buffers {
                 buf.deinit();
             }
+            for buf in &mut self.ui_uniform_buffers {
+                buf.deinit();
+            }
+
+            for buf in &mut self.td_ui_staging_vertex_buffers {
+                buf.deinit();
+            }
+            for buf in &mut self.td_ui_vertex_buffers {
+                buf.deinit();
+            }
+
             for buf in &mut self.graphics_staging_vertex_buffers {
                 buf.deinit();
             }
             for buf in &mut self.graphics_vertex_buffers {
-                buf.deinit();
-            }
-            for buf in &mut self.ui_uniform_buffers {
                 buf.deinit();
             }
 
@@ -2371,7 +2428,7 @@ impl Renderer for VulkanApp {
                     command_buffer.submit(&[self.semaphore])?;
 
                     // graphics
-                    self.update_graphics_vertex_buffer(image_index, vertices)?;
+                    self.graphics_staging_vertex_buffers[image_index].copy_data(vertices)?;
 
                     // text
                     self.draw_text(
@@ -2394,12 +2451,16 @@ impl Renderer for VulkanApp {
                             .build()],
                         vk::Fence::null(),
                     )?;
+
+                    let command_buffers = [self.take_ownership_cmd_buffers[image_index]];
+                    let wait_semaphores = [self.transfer_ownership_semaphores[image_index]];
+                    let wait_dst_stage_mask = [vk::PipelineStageFlags::VERTEX_INPUT];
                     self.core.device.queue_submit(
                         self.core.graphics_queue,
                         &[vk::SubmitInfo::builder()
-                            .command_buffers(&[self.take_ownership_cmd_buffers[image_index]])
-                            .wait_semaphores(&[self.transfer_ownership_semaphores[image_index]])
-                            .wait_dst_stage_mask(&[vk::PipelineStageFlags::VERTEX_INPUT])
+                            .command_buffers(&command_buffers)
+                            .wait_semaphores(&wait_semaphores)
+                            .wait_dst_stage_mask(&wait_dst_stage_mask)
                             .build()],
                         vk::Fence::null(),
                     )?;
@@ -2407,19 +2468,22 @@ impl Renderer for VulkanApp {
                     let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
 
                     // Start render pass
+                    let wait_semaphores = [
+                        self.image_available_semaphores[self.current_frame],
+                        self.semaphore,
+                    ];
+                    let wait_dst_stage_mask = [
+                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                        vk::PipelineStageFlags::VERTEX_SHADER,
+                    ];
+                    let command_buffers = [self.new_render_pass_command_buffer(
+                        image_index,
+                        &[graphics_draw_cmd_buf, ui_draw_cmd_buf],
+                    )?];
                     let submit_info = vk::SubmitInfo::builder()
-                        .wait_semaphores(&[
-                            self.image_available_semaphores[self.current_frame],
-                            self.semaphore,
-                        ])
-                        .wait_dst_stage_mask(&[
-                            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                            vk::PipelineStageFlags::VERTEX_SHADER,
-                        ])
-                        .command_buffers(&[self.new_render_pass_command_buffer(
-                            image_index,
-                            &[graphics_draw_cmd_buf, ui_draw_cmd_buf],
-                        )?])
+                        .wait_semaphores(&wait_semaphores)
+                        .wait_dst_stage_mask(&wait_dst_stage_mask)
+                        .command_buffers(&command_buffers)
                         .signal_semaphores(&signal_semaphores)
                         .build();
 
@@ -2433,10 +2497,11 @@ impl Renderer for VulkanApp {
                     )?;
 
                     let swapchains = [self.swapchain_handle];
+                    let image_indices = [image_index as u32];
                     let present_info = vk::PresentInfoKHR::builder()
                         .wait_semaphores(&signal_semaphores)
                         .swapchains(&swapchains)
-                        .image_indices(&[image_index as u32])
+                        .image_indices(&image_indices)
                         .build();
 
                     match self
