@@ -78,6 +78,7 @@ fn pad_font_bytes(bytes: Vec<u8>) -> Vec<u8> {
 
 pub struct VulkanApp {
     pub core: VulkanCore,
+    current_frame: usize,
 
     screen_width: u32,
     screen_height: u32,
@@ -95,16 +96,11 @@ pub struct VulkanApp {
     glyph_metrics: Vec<GlyphMetrics>,
     glyph_textures: Vec<Texture>,
 
-    graphics_command_pool: vk::CommandPool,
-    graphics_command_buffers: Vec<vk::CommandBuffer>,
     transfer_command_pool: vk::CommandPool,
-    transfer_command_buffers: Vec<vk::CommandBuffer>,
+    descriptor_pool: vk::DescriptorPool,
 
-    image_available_semaphores: Vec<vk::Semaphore>,
-    render_finished_semaphores: Vec<vk::Semaphore>,
-    in_flight_fences: Vec<vk::Fence>,
-
-    current_frame: usize,
+    // graphics
+    graphics_command_pool: vk::CommandPool,
 
     graphics_pipeline: vk::Pipeline,
     graphics_pipeline_layout: vk::PipelineLayout,
@@ -113,14 +109,30 @@ pub struct VulkanApp {
     graphics_vertex_buffers: Vec<Buffer<TextVertex>>,
     graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
+    graphics_descriptor_sets: Vec<vk::DescriptorSet>,
+    graphics_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+
+    graphics_texture_sampler: vk::Sampler,
+
+    // text
     text_pipeline: vk::Pipeline,
     text_pipeline_layout: vk::PipelineLayout,
-    selection_pipeline: vk::Pipeline,
-    selection_pipeline_layout: vk::PipelineLayout,
 
     text_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
     text_vertex_buffers: Vec<Buffer<TextVertex>>,
     text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+
+    text_uniform_buffers: Vec<Buffer<UiUniforms>>,
+
+    text_descriptor_sets: Vec<vk::DescriptorSet>,
+    text_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+
+    text_texture_sampler: vk::Sampler,
+
+    // selection
+    selection_pipeline: vk::Pipeline,
+    selection_pipeline_layout: vk::PipelineLayout,
+
     selection_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
     selection_vertex_buffers: Vec<Buffer<TextVertex>>,
     selection_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
@@ -128,18 +140,8 @@ pub struct VulkanApp {
     render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
-    transfer_ownership_semaphores: Vec<vk::Semaphore>,
-
-    text_uniform_buffers: Vec<Buffer<UiUniforms>>,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
-    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
-    text_descriptor_sets: Vec<vk::DescriptorSet>,
-    text_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
 
     textures: HashMap<String, Texture>,
-    texture_sampler: vk::Sampler,
-    text_text_sampler: vk::Sampler,
 
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
@@ -156,7 +158,12 @@ pub struct VulkanApp {
     screen_space_normalize_mat: Matrix4f,
     uniform_push_constants: UniformPushConstants,
 
-    semaphore: vk::Semaphore,
+    // sync
+    transfer_ownership_semaphores: Vec<vk::Semaphore>,
+    push_constant_semaphore: vk::Semaphore,
+    image_available_semaphores: Vec<vk::Semaphore>,
+    render_finished_semaphores: Vec<vk::Semaphore>,
+    in_flight_fences: Vec<vk::Fence>,
 }
 
 impl VulkanApp {
@@ -188,18 +195,14 @@ impl VulkanApp {
             screen_space_normalize_mat[(1, 2)] = -1.0;
             let screen_space_normalize_mat = mat4f::from_mat3f(screen_space_normalize_mat);
 
-            let semaphore_ci = vk::SemaphoreCreateInfo::default();
-            let semaphore = core.device.create_semaphore(&semaphore_ci, None)?;
-
             let mut base = VulkanApp {
-                current_frame: 0,
                 core,
+                current_frame: 0,
 
                 screen_width,
                 screen_height,
 
                 surface_format: Default::default(),
-                render_pass: Default::default(),
                 swapchain_extent: Default::default(),
                 swapchain_handle: Default::default(),
                 swapchain_images: Default::default(),
@@ -207,32 +210,48 @@ impl VulkanApp {
                 swapchain_framebuffers: Default::default(),
                 swapchain_len: 0,
 
-                graphics_pipeline_layout: Default::default(),
-                graphics_pipeline: Default::default(),
-                text_pipeline_layout: Default::default(),
-                text_pipeline: Default::default(),
-                selection_pipeline_layout: Default::default(),
-                selection_pipeline: Default::default(),
+                render_pass: Default::default(),
 
                 glyph_metrics: Default::default(),
                 glyph_textures: Default::default(),
 
-                graphics_command_pool: Default::default(),
-                graphics_command_buffers: Default::default(),
                 transfer_command_pool: Default::default(),
-                transfer_command_buffers: Default::default(),
+                descriptor_pool: Default::default(),
 
-                image_available_semaphores: Default::default(),
-                render_finished_semaphores: Default::default(),
-                in_flight_fences: Default::default(),
+                // graphics
+                graphics_command_pool: Default::default(),
+
+                graphics_pipeline: Default::default(),
+                graphics_pipeline_layout: Default::default(),
 
                 graphics_staging_vertex_buffers: Default::default(),
                 graphics_vertex_buffers: Default::default(),
                 graphics_draw_cmd_bufs: Default::default(),
 
+                graphics_descriptor_sets: Default::default(),
+                graphics_descriptor_set_layouts: Default::default(),
+
+                graphics_texture_sampler: Default::default(),
+
+                // text
+                text_pipeline: Default::default(),
+                text_pipeline_layout: Default::default(),
+
                 text_staging_vertex_buffers: Default::default(),
                 text_vertex_buffers: Default::default(),
                 text_draw_cmd_bufs: Default::default(),
+
+                text_uniform_buffers: Default::default(),
+
+                text_descriptor_sets: Default::default(),
+                text_descriptor_set_layouts: Default::default(),
+
+                text_texture_sampler: Default::default(),
+
+                // selection
+                selection_pipeline: Default::default(),
+                selection_pipeline_layout: Default::default(),
+
                 selection_staging_vertex_buffers: Default::default(),
                 selection_vertex_buffers: Default::default(),
                 selection_draw_cmd_bufs: Default::default(),
@@ -242,29 +261,17 @@ impl VulkanApp {
                 take_ownership_cmd_buffers: Default::default(),
                 transfer_ownership_semaphores: Default::default(),
 
-                text_uniform_buffers: Default::default(),
-
-                descriptor_pool: Default::default(),
-                descriptor_sets: Default::default(),
-                descriptor_set_layouts: Default::default(),
-                text_descriptor_sets: Default::default(),
-                text_descriptor_set_layouts: Default::default(),
-
                 textures: HashMap::default(),
-                texture_sampler: Default::default(),
-                text_text_sampler: Default::default(),
 
                 depth_image: Default::default(),
                 depth_image_memory: Default::default(),
                 depth_image_view: Default::default(),
 
+                msaa_samples: Default::default(),
+
                 color_image: Default::default(),
                 color_image_memory: Default::default(),
                 color_image_view: Default::default(),
-
-                msaa_samples: Default::default(),
-
-                semaphore,
 
                 view_mat,
                 proj_mat,
@@ -272,6 +279,12 @@ impl VulkanApp {
                 uniform_push_constants: UniformPushConstants {
                     proj_view: proj_mat * view_mat,
                 },
+
+                // sync
+                push_constant_semaphore: Default::default(),
+                image_available_semaphores: Default::default(),
+                render_finished_semaphores: Default::default(),
+                in_flight_fences: Default::default(),
             };
 
             base.msaa_samples = base.get_max_usable_sample_count();
@@ -545,7 +558,7 @@ impl VulkanApp {
             .build();
         let push_constant_ranges = [push_constant_range];
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.descriptor_set_layouts)
+            .set_layouts(&self.graphics_descriptor_set_layouts)
             .push_constant_ranges(&push_constant_ranges)
             .build();
         self.graphics_pipeline_layout = self
@@ -794,7 +807,7 @@ impl VulkanApp {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
-        let immutable_samplers = [self.texture_sampler];
+        let immutable_samplers = [self.graphics_texture_sampler];
         let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(1)
             .descriptor_type(vk::DescriptorType::SAMPLER)
@@ -818,7 +831,7 @@ impl VulkanApp {
             .build();
 
         for _ in &self.swapchain_images {
-            self.descriptor_set_layouts.push(
+            self.graphics_descriptor_set_layouts.push(
                 self.core
                     .device
                     .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
@@ -832,7 +845,7 @@ impl VulkanApp {
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .build();
-        let immutable_samplers = [self.text_text_sampler];
+        let immutable_samplers = [self.text_texture_sampler];
         let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(1)
             .descriptor_type(vk::DescriptorType::SAMPLER)
@@ -1163,8 +1176,6 @@ impl VulkanApp {
     }
 
     unsafe fn create_buffers(&mut self) -> VkResult<()> {
-        self.graphics_command_buffers = vec![Default::default(); self.swapchain_len];
-        self.transfer_command_buffers = vec![Default::default(); self.swapchain_len];
         self.render_pass_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
         for _ in 0..self.swapchain_len {
@@ -1403,7 +1414,7 @@ impl VulkanApp {
             vk::PipelineBindPoint::GRAPHICS,
             self.graphics_pipeline_layout,
             0,
-            &self.descriptor_sets,
+            &self.graphics_descriptor_sets,
             &[],
         );
 
@@ -1750,8 +1761,8 @@ impl VulkanApp {
             .min_lod(0.0)
             .max_lod(100.0)
             .build();
-        self.texture_sampler = self.core.device.create_sampler(&sampler_ci, None)?;
-        self.text_text_sampler = self.core.device.create_sampler(
+        self.graphics_texture_sampler = self.core.device.create_sampler(&sampler_ci, None)?;
+        self.text_texture_sampler = self.core.device.create_sampler(
             &vk::SamplerCreateInfo::builder()
                 .mag_filter(vk::Filter::LINEAR)
                 .min_filter(vk::Filter::LINEAR)
@@ -1903,6 +1914,8 @@ impl VulkanApp {
 
     unsafe fn create_sync_objects(&mut self) -> VkResult<()> {
         let semaphore_ci = vk::SemaphoreCreateInfo::builder().build();
+        self.push_constant_semaphore = self.core.device.create_semaphore(&semaphore_ci, None)?;
+
         let fence_ci = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED)
             .build();
@@ -2023,17 +2036,17 @@ impl VulkanApp {
     unsafe fn create_descriptor_sets(&mut self) -> VkResult<()> {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
-            .set_layouts(&self.descriptor_set_layouts)
+            .set_layouts(&self.graphics_descriptor_set_layouts)
             .build();
-        self.descriptor_sets = self
+        self.graphics_descriptor_sets = self
             .core
             .device
             .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
 
-        for &ds in self.descriptor_sets.iter() {
+        for &ds in self.graphics_descriptor_sets.iter() {
             // binding 1: sampler
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .sampler(self.texture_sampler)
+                .sampler(self.graphics_texture_sampler)
                 .build();
             let image_info = [sampler_descriptor_image_info];
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
@@ -2087,7 +2100,7 @@ impl VulkanApp {
                 .build();
 
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .sampler(self.text_text_sampler)
+                .sampler(self.text_texture_sampler)
                 .build();
             let image_info = [sampler_descriptor_image_info];
             let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
@@ -2252,9 +2265,6 @@ impl VulkanApp {
                 .device
                 .destroy_framebuffer(swapchain_framebuffer, None);
         }
-        self.core
-            .device
-            .free_command_buffers(self.graphics_command_pool, &self.graphics_command_buffers);
 
         self.core
             .device
@@ -2302,14 +2312,16 @@ impl Drop for VulkanApp {
                 texture.deinit();
             }
 
-            self.core.device.destroy_sampler(self.texture_sampler, None);
             self.core
                 .device
-                .destroy_sampler(self.text_text_sampler, None);
+                .destroy_sampler(self.graphics_texture_sampler, None);
+            self.core
+                .device
+                .destroy_sampler(self.text_texture_sampler, None);
             self.core
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-            for &descriptor_set_layout in &self.descriptor_set_layouts {
+            for &descriptor_set_layout in &self.graphics_descriptor_set_layouts {
                 self.core
                     .device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -2344,7 +2356,9 @@ impl Drop for VulkanApp {
                 buf.deinit();
             }
 
-            self.core.device.destroy_semaphore(self.semaphore, None);
+            self.core
+                .device
+                .destroy_semaphore(self.push_constant_semaphore, None);
 
             for i in 0..self.swapchain_len {
                 self.core
@@ -2423,7 +2437,7 @@ impl Renderer for VulkanApp {
                         0,
                         &data,
                     );
-                    command_buffer.submit(&[self.semaphore])?;
+                    command_buffer.submit(&[self.push_constant_semaphore])?;
 
                     // graphics
                     self.graphics_staging_vertex_buffers[image_index].copy_data(vertices)?;
@@ -2468,7 +2482,7 @@ impl Renderer for VulkanApp {
                     // Start render pass
                     let wait_semaphores = [
                         self.image_available_semaphores[self.current_frame],
-                        self.semaphore,
+                        self.push_constant_semaphore,
                     ];
                     let wait_dst_stage_mask = [
                         vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,

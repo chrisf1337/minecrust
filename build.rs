@@ -84,4 +84,32 @@ fn main() {
     {
         panic!("failed to compile selection.frag");
     }
+
+    // crosshair
+    if !Command::new("D:/VulkanSDK/1.1.85.0/Bin/glslangValidator.exe")
+        .args(&[
+            "-V",
+            "src/shaders/crosshair.vert",
+            "-o",
+            "src/shaders/crosshair-vert.spv",
+        ])
+        .status()
+        .unwrap()
+        .success()
+    {
+        panic!("failed to compile crosshair.vert");
+    }
+    if !Command::new("D:/VulkanSDK/1.1.85.0/Bin/glslangValidator.exe")
+        .args(&[
+            "-V",
+            "src/shaders/crosshair.frag",
+            "-o",
+            "src/shaders/crosshair-frag.spv",
+        ])
+        .status()
+        .unwrap()
+        .success()
+    {
+        panic!("failed to compile crosshair.frag");
+    }
 }
