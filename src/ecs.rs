@@ -8,6 +8,7 @@ use crate::{
     renderer::{RenderData, Renderer},
     types::prelude::*,
     utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC},
+    vulkan::Vertex3f,
 };
 use specs::prelude::*;
 use specs::Entity;

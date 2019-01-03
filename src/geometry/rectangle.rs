@@ -1,6 +1,7 @@
 use crate::{
     geometry::{BoundingBox, PrimitiveGeometry},
     types::prelude::*,
+    vulkan::Vertex3f,
 };
 
 /// A 2d rectangle along the xz plane.

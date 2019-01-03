@@ -1,4 +1,4 @@
-use crate::types::{color::Color, prelude::*};
+use crate::types::{prelude::*, Color};
 use ash::vk;
 
 #[repr(C)]

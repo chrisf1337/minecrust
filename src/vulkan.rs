@@ -2,9 +2,11 @@ pub mod app;
 mod buffer;
 pub mod error;
 mod one_time_command_buffer;
+mod text;
 mod texture;
+mod vertex;
 
-pub use self::app::VulkanApp;
+pub use self::{app::VulkanApp, vertex::Vertex3f};
 
 use self::error::{from_vk_result, VulkanError, VulkanResult};
 use ash::{

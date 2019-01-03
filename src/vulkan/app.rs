@@ -2,13 +2,15 @@ use crate::{
     game::GameState,
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
-    types::{prelude::*, Color, GlyphMetrics, TextVertex},
+    types::{prelude::*, Color},
     utils::{clamp, mat4f},
     vulkan::{
         buffer::Buffer,
         error::{VulkanError, VulkanResult},
         one_time_command_buffer::OneTimeCommandBuffer,
+        text::{GlyphMetrics, TextVertex},
         texture::Texture,
+        vertex::{Vertex2f, Vertex3f},
         VulkanCore,
     },
 };
@@ -137,6 +139,17 @@ pub struct VulkanApp {
     selection_vertex_buffers: Vec<Buffer<TextVertex>>,
     selection_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
+    // crosshair
+    crosshair_pipeline: vk::Pipeline,
+    crosshair_pipeline_layout: vk::PipelineLayout,
+
+    crosshair_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
+    crosshair_vertex_buffers: Vec<Buffer<TextVertex>>,
+    crosshair_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+
+    crosshair_descriptor_sets: Vec<vk::DescriptorSet>,
+    crosshair_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+
     render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
@@ -256,6 +269,17 @@ impl VulkanApp {
                 selection_vertex_buffers: Default::default(),
                 selection_draw_cmd_bufs: Default::default(),
 
+                // crosshair
+                crosshair_pipeline: Default::default(),
+                crosshair_pipeline_layout: Default::default(),
+
+                crosshair_staging_vertex_buffers: Default::default(),
+                crosshair_vertex_buffers: Default::default(),
+                crosshair_draw_cmd_bufs: Default::default(),
+
+                crosshair_descriptor_sets: Default::default(),
+                crosshair_descriptor_set_layouts: Default::default(),
+
                 render_pass_cmd_bufs: Default::default(),
                 transfer_cmd_bufs: Default::default(),
                 take_ownership_cmd_buffers: Default::default(),
@@ -296,6 +320,7 @@ impl VulkanApp {
             base.create_descriptor_set_layouts()?;
             base.create_graphics_pipeline()?;
             base.create_text_pipeline()?;
+            base.create_crosshair_pipeline()?;
 
             base.create_command_pools()?;
 
@@ -335,6 +360,10 @@ impl VulkanApp {
             base.textures.insert("texture".to_owned(), texture);
             base.textures
                 .insert("cobblestone".to_owned(), cobblestone_texture);
+
+            let crosshair_texture = base.create_texture_image("assets/crosshair.png")?;
+            base.textures
+                .insert("crosshair".to_owned(), crosshair_texture);
 
             base.create_buffers()?;
 
@@ -671,15 +700,8 @@ impl VulkanApp {
             .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
-        let push_constant_range = vk::PushConstantRange::builder()
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .size(std::mem::size_of::<UniformPushConstants>() as u32)
-            .offset(0)
-            .build();
-        let push_constant_ranges = [push_constant_range];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&self.text_descriptor_set_layouts)
-            .push_constant_ranges(&push_constant_ranges)
             .build();
         let pipeline_layout = self
             .core
@@ -712,6 +734,122 @@ impl VulkanApp {
 
         self.text_pipeline_layout = pipeline_layout;
         self.text_pipeline = pipeline;
+
+        Ok(())
+    }
+
+    unsafe fn create_crosshair_pipeline(&mut self) -> VulkanResult<()> {
+        let vert_module = self.create_shader_module_from_file("src/shaders/crosshair-vert.spv")?;
+        let frag_module = self.create_shader_module_from_file("src/shaders/crosshair-frag.spv")?;
+        let shader_stage_name = CString::new("main")?;
+        let vert_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vert_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let frag_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(frag_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
+
+        let vertex_binding_descriptions = [Vertex2f::binding_description()];
+        let vertex_attribute_descriptions = Vertex2f::attribute_descriptions();
+        let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions)
+            .build();
+        let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .primitive_restart_enable(false);
+        let viewport = vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(self.swapchain_extent.width as f32)
+            .height(self.swapchain_extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0)
+            .build();
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: self.swapchain_extent,
+        };
+        let viewports = [viewport];
+        let scissors = [scissor];
+        let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
+            .viewports(&viewports)
+            .scissors(&scissors)
+            .build();
+        let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::BACK)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false)
+            .build();
+        let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
+            .sample_shading_enable(true)
+            .rasterization_samples(self.msaa_samples)
+            .min_sample_shading(0.2)
+            .build();
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::all())
+            .blend_enable(true)
+            .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .color_blend_op(vk::BlendOp::ADD)
+            .src_alpha_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .alpha_blend_op(vk::BlendOp::ADD)
+            .build();
+        let attachments = [color_blend_attachment];
+        let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op_enable(false)
+            .attachments(&attachments)
+            .build();
+        let depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(false)
+            .depth_write_enable(false)
+            .depth_compare_op(vk::CompareOp::LESS)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false);
+        let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(&self.crosshair_descriptor_set_layouts)
+            .build();
+        let pipeline_layout = self
+            .core
+            .device
+            .create_pipeline_layout(&pipeline_layout_ci, None)?;
+
+        let pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&shader_stages)
+            .vertex_input_state(&vertex_input_state_ci)
+            .input_assembly_state(&input_assembly_state_ci)
+            .viewport_state(&viewport_state_ci)
+            .rasterization_state(&rasterizer_state_ci)
+            .multisample_state(&multisample_state_ci)
+            .color_blend_state(&color_blend_state_ci)
+            .depth_stencil_state(&depth_stencil_state_ci)
+            .layout(pipeline_layout)
+            .render_pass(self.render_pass)
+            .subpass(0)
+            .build();
+        let pipeline_cis = [pipeline_ci];
+        let pipeline = self
+            .core
+            .device
+            .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
+            .map_err(|x| x.1)?[0];
+
+        // clean up shader modules
+        self.core.device.destroy_shader_module(vert_module, None);
+        self.core.device.destroy_shader_module(frag_module, None);
+
+        self.crosshair_pipeline_layout = pipeline_layout;
+        self.crosshair_pipeline = pipeline;
 
         Ok(())
     }
@@ -830,7 +968,7 @@ impl VulkanApp {
             .bindings(&bindings)
             .build();
 
-        for _ in &self.swapchain_images {
+        for _ in 0..self.swapchain_len {
             self.graphics_descriptor_set_layouts.push(
                 self.core
                     .device
@@ -838,7 +976,7 @@ impl VulkanApp {
             );
         }
 
-        // ui
+        // text
         let text_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -868,8 +1006,36 @@ impl VulkanApp {
             .bindings(&bindings)
             .build();
 
-        for _ in &self.swapchain_images {
+        for _ in 0..self.swapchain_len {
             self.text_descriptor_set_layouts.push(
+                self.core
+                    .device
+                    .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
+            );
+        }
+
+        // crosshair
+        let crosshair_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .build();
+        let immutable_samplers = [self.graphics_texture_sampler];
+        let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .immutable_samplers(&immutable_samplers)
+            .build();
+        let bindings = [crosshair_uniforms_layout_binding, sampler_layout_binding];
+        let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
+            .bindings(&bindings)
+            .build();
+
+        for _ in 0..self.swapchain_len {
+            self.crosshair_descriptor_set_layouts.push(
                 self.core
                     .device
                     .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
@@ -1744,24 +1910,26 @@ impl VulkanApp {
     }
 
     unsafe fn create_texture_samplers(&mut self) -> VulkanResult<()> {
-        let sampler_ci = vk::SamplerCreateInfo::builder()
-            .mag_filter(vk::Filter::NEAREST)
-            .min_filter(vk::Filter::LINEAR)
-            .address_mode_u(vk::SamplerAddressMode::REPEAT)
-            .address_mode_v(vk::SamplerAddressMode::REPEAT)
-            .address_mode_w(vk::SamplerAddressMode::REPEAT)
-            .anisotropy_enable(true)
-            .max_anisotropy(16.0)
-            .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
-            .unnormalized_coordinates(false)
-            .compare_enable(false)
-            .compare_op(vk::CompareOp::ALWAYS)
-            .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
-            .mip_lod_bias(0.0)
-            .min_lod(0.0)
-            .max_lod(100.0)
-            .build();
-        self.graphics_texture_sampler = self.core.device.create_sampler(&sampler_ci, None)?;
+        self.graphics_texture_sampler = self.core.device.create_sampler(
+            &vk::SamplerCreateInfo::builder()
+                .mag_filter(vk::Filter::NEAREST)
+                .min_filter(vk::Filter::LINEAR)
+                .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                .anisotropy_enable(true)
+                .max_anisotropy(16.0)
+                .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+                .unnormalized_coordinates(false)
+                .compare_enable(false)
+                .compare_op(vk::CompareOp::ALWAYS)
+                .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+                .mip_lod_bias(0.0)
+                .min_lod(0.0)
+                .max_lod(100.0)
+                .build(),
+            None,
+        )?;
         self.text_texture_sampler = self.core.device.create_sampler(
             &vk::SamplerCreateInfo::builder()
                 .mag_filter(vk::Filter::LINEAR)
@@ -2010,21 +2178,20 @@ impl VulkanApp {
     unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
         let uniforms_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count((self.swapchain_len * 2) as u32)
+            .descriptor_count((self.swapchain_len * 3) as u32)
             .build();
         let sampler_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLER)
-            // 1 image + 256 glyphs
-            .descriptor_count(((1 + N_GLYPH_TEXTURES) * self.swapchain_len * 2) as u32)
+            .descriptor_count((self.swapchain_len * 3) as u32)
             .build();
         let texture_pool_size = vk::DescriptorPoolSize::builder()
             .ty(vk::DescriptorType::SAMPLED_IMAGE)
-            .descriptor_count(self.swapchain_len as u32)
+            .descriptor_count((self.swapchain_len * 2) as u32)
             .build();
         let pool_sizes = [uniforms_pool_size, sampler_pool_size, texture_pool_size];
         let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(&pool_sizes)
-            .max_sets((self.swapchain_len * 2) as u32)
+            .max_sets((self.swapchain_len * 3) as u32)
             .build();
         self.descriptor_pool = self
             .core
@@ -2038,11 +2205,11 @@ impl VulkanApp {
             .descriptor_pool(self.descriptor_pool)
             .set_layouts(&self.graphics_descriptor_set_layouts)
             .build();
+
         self.graphics_descriptor_sets = self
             .core
             .device
             .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
-
         for &ds in self.graphics_descriptor_sets.iter() {
             // binding 1: sampler
             let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
@@ -2133,6 +2300,49 @@ impl VulkanApp {
                     sampler_write_descriptor_set,
                     glyphs_write_descriptor_set,
                 ],
+                &[],
+            );
+        }
+
+        self.crosshair_descriptor_sets = self.core.device.allocate_descriptor_sets(
+            &vk::DescriptorSetAllocateInfo::builder()
+                .descriptor_pool(self.descriptor_pool)
+                .set_layouts(&self.crosshair_descriptor_set_layouts)
+                .build(),
+        )?;
+        for (i, &ds) in self.crosshair_descriptor_sets.iter().enumerate() {
+            // binding 0: uniform buffer
+            let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+                .buffer(self.text_uniform_buffers[i].buffer)
+                .offset(0)
+                .range(std::mem::size_of::<UiUniforms>() as vk::DeviceSize)
+                .build();
+            let buffer_info = [descriptor_buffer_info];
+            let buffer_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(ds)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&buffer_info)
+                .build();
+
+            // binding 1: sampler
+            let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .image_view(self.textures["crosshair"].view)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .sampler(self.graphics_texture_sampler)
+                .build();
+            let image_info = [sampler_descriptor_image_info];
+            let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(ds)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&image_info)
+                .build();
+
+            self.core.device.update_descriptor_sets(
+                &[buffer_write_descriptor_set, sampler_write_descriptor_set],
                 &[],
             );
         }
@@ -2285,6 +2495,13 @@ impl VulkanApp {
             .device
             .destroy_pipeline_layout(self.selection_pipeline_layout, None);
 
+        self.core
+            .device
+            .destroy_pipeline(self.crosshair_pipeline, None);
+        self.core
+            .device
+            .destroy_pipeline_layout(self.crosshair_pipeline_layout, None);
+
         self.core.device.destroy_render_pass(self.render_pass, None);
         for &image_view in self.swapchain_image_views.iter() {
             self.core.device.destroy_image_view(image_view, None);
@@ -2321,12 +2538,18 @@ impl Drop for VulkanApp {
             self.core
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
+
             for &descriptor_set_layout in &self.graphics_descriptor_set_layouts {
                 self.core
                     .device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
             }
             for &descriptor_set_layout in &self.text_descriptor_set_layouts {
+                self.core
+                    .device
+                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
+            }
+            for &descriptor_set_layout in &self.crosshair_descriptor_set_layouts {
                 self.core
                     .device
                     .destroy_descriptor_set_layout(descriptor_set_layout, None);
@@ -2353,6 +2576,13 @@ impl Drop for VulkanApp {
                 buf.deinit();
             }
             for buf in &mut self.graphics_vertex_buffers {
+                buf.deinit();
+            }
+
+            for buf in &mut self.crosshair_staging_vertex_buffers {
+                buf.deinit();
+            }
+            for buf in &mut self.crosshair_vertex_buffers {
                 buf.deinit();
             }
 

@@ -1,6 +1,7 @@
 use crate::{
     geometry::{rectangle::Rectangle, BoundingBox, PrimitiveGeometry},
     types::prelude::*,
+    vulkan::Vertex3f,
 };
 
 #[derive(Clone, Debug)]

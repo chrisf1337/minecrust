@@ -20,7 +20,7 @@ use std::{
     collections::HashMap,
     ops::DerefMut,
     rc::Rc,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 use winit::{dpi::LogicalSize, Event, VirtualKeyCode, WindowEvent};
 

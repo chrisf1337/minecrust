@@ -1,19 +1,12 @@
 mod color;
-mod text;
-mod vertex;
 pub mod prelude;
 
-pub use crate::types::{
-    color::Color,
-    text::{GlyphMetrics, TextVertex},
-    vertex::{Vertex2f, Vertex3f},
-};
+pub use crate::types::color::Color;
 
 use crate::na::{
     Isometry3, Matrix3, Matrix4, Point2, Point3, Quaternion, Rotation2, Rotation3, Transform2,
     Transform3, Translation2, UnitQuaternion, Vector2, Vector3, Vector4,
 };
-use ash::vk;
 
 pub type Matrix3f = Matrix3<f32>;
 pub type Matrix4f = Matrix4<f32>;

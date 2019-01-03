@@ -11,11 +11,11 @@ layout (location = 1) out vec4 outColor;
 layout (location = 2) out uint outCharIdx;
 
 layout (binding = 0) uniform Uniforms {
-    mat4 screen_space_normalize_mat;
+    mat4 screenSpaceNormalizeMat;
 } uniforms;
 
 void main() {
-    gl_Position = vec4((mat3(uniforms.screen_space_normalize_mat) * vec3(inPos, 1.0)).xy, 0.0, 1.0);
+    gl_Position = vec4((mat3(uniforms.screenSpaceNormalizeMat) * vec3(inPos, 1.0)).xy, 0.0, 1.0);
     // gl_Position = vec4(inPos, 0.0, 1.0);
     outUv = inUv;
     outColor = inColor;

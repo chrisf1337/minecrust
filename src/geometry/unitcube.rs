@@ -2,6 +2,7 @@ use crate::na::{Isometry, Rotation3, Translation3};
 use crate::{
     geometry::{square::Square, BoundingBox, PrimitiveGeometry},
     types::prelude::*,
+    vulkan::Vertex3f,
 };
 use alga::general::SubsetOf;
 use std::f32::consts::{FRAC_PI_2, PI};
