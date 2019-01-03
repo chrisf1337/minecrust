@@ -5,6 +5,7 @@ use ash::{prelude::VkResult, version::DeviceV1_0, vk};
 pub struct DescriptorSetLayoutBinding {
     pub binding_index: u32,
     pub ty: vk::DescriptorType,
+    count: u32,
     pub stage_flags: vk::ShaderStageFlags,
     pub immutable_samplers: Vec<vk::Sampler>,
     pub binding: vk::DescriptorSetLayoutBinding,
@@ -14,21 +15,24 @@ impl DescriptorSetLayoutBinding {
     pub fn new(
         binding_index: u32,
         ty: vk::DescriptorType,
+        count: u32,
         stage_flags: vk::ShaderStageFlags,
         immutable_samplers: Vec<vk::Sampler>,
     ) -> DescriptorSetLayoutBinding {
         let mut binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(binding_index)
             .descriptor_type(ty)
-            .descriptor_count(1)
+            .descriptor_count(count)
             .stage_flags(stage_flags);
         if !immutable_samplers.is_empty() {
+            assert_eq!(immutable_samplers.len(), count as usize);
             binding = binding.immutable_samplers(&immutable_samplers);
         }
         let binding = binding.build();
         DescriptorSetLayoutBinding {
             binding_index,
             ty,
+            count,
             stage_flags,
             immutable_samplers,
             binding,

@@ -87,18 +87,55 @@ unsafe fn new_graphics_descriptor_set_layout(
     let sampler_layout_binding = DescriptorSetLayoutBinding::new(
         1,
         vk::DescriptorType::SAMPLER,
+        1,
         vk::ShaderStageFlags::FRAGMENT,
         vec![graphics_texture_sampler],
     );
     let texture_layout_binding = DescriptorSetLayoutBinding::new(
         2,
         vk::DescriptorType::SAMPLED_IMAGE,
+        1,
         vk::ShaderStageFlags::FRAGMENT,
         vec![],
     );
     Ok(DescriptorSetLayout::new(
         &core,
         vec![sampler_layout_binding, texture_layout_binding],
+    )?)
+}
+
+unsafe fn new_text_descriptor_set_layout(
+    core: &VulkanCore,
+    text_texture_sampler: vk::Sampler,
+) -> VkResult<DescriptorSetLayout> {
+    let text_uniforms_layout_binding = DescriptorSetLayoutBinding::new(
+        0,
+        vk::DescriptorType::UNIFORM_BUFFER,
+        1,
+        vk::ShaderStageFlags::VERTEX,
+        vec![],
+    );
+    let sampler_layout_binding = DescriptorSetLayoutBinding::new(
+        1,
+        vk::DescriptorType::SAMPLER,
+        1,
+        vk::ShaderStageFlags::FRAGMENT,
+        vec![text_texture_sampler],
+    );
+    let glyph_textures_binding = DescriptorSetLayoutBinding::new(
+        2,
+        vk::DescriptorType::SAMPLED_IMAGE,
+        N_GLYPH_TEXTURES as u32,
+        vk::ShaderStageFlags::FRAGMENT,
+        vec![],
+    );
+    Ok(DescriptorSetLayout::new(
+        core,
+        vec![
+            text_uniforms_layout_binding,
+            sampler_layout_binding,
+            glyph_textures_binding,
+        ],
     )?)
 }
 
@@ -151,7 +188,7 @@ pub struct VulkanApp {
     text_uniform_buffers: Vec<Buffer<UiUniforms>>,
 
     text_descriptor_sets: Vec<vk::DescriptorSet>,
-    text_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    text_descriptor_set_layout: DescriptorSetLayout,
 
     text_texture_sampler: vk::Sampler,
 
@@ -272,6 +309,8 @@ impl VulkanApp {
 
             let graphics_descriptor_set_layout =
                 new_graphics_descriptor_set_layout(&core, graphics_texture_sampler)?;
+            let text_descriptor_set_layout =
+                new_text_descriptor_set_layout(&core, text_texture_sampler)?;
 
             let mut base = VulkanApp {
                 core,
@@ -322,7 +361,7 @@ impl VulkanApp {
                 text_uniform_buffers: Default::default(),
 
                 text_descriptor_sets: Default::default(),
-                text_descriptor_set_layouts: Default::default(),
+                text_descriptor_set_layout,
 
                 text_texture_sampler,
 
@@ -766,8 +805,9 @@ impl VulkanApp {
             .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
+        let layouts = vec![self.text_descriptor_set_layout.layout; self.swapchain_len];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.text_descriptor_set_layouts)
+            .set_layouts(&layouts)
             .build();
         let pipeline_layout = self
             .core
@@ -1004,44 +1044,6 @@ impl VulkanApp {
     }
 
     unsafe fn create_descriptor_set_layouts(&mut self) -> VkResult<()> {
-        // text
-        let text_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .build();
-        let immutable_samplers = [self.text_texture_sampler];
-        let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&immutable_samplers)
-            .build();
-        let glyph_textures_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(2)
-            .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-            .descriptor_count(N_GLYPH_TEXTURES as u32)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-        let bindings = [
-            text_uniforms_layout_binding,
-            sampler_layout_binding,
-            glyph_textures_binding,
-        ];
-        let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&bindings)
-            .build();
-
-        for _ in 0..self.swapchain_len {
-            self.text_descriptor_set_layouts.push(
-                self.core
-                    .device
-                    .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
-            );
-        }
-
         // crosshair
         let crosshair_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
@@ -2237,10 +2239,11 @@ impl VulkanApp {
             );
         }
 
+        let layouts = vec![self.text_descriptor_set_layout.layout; self.swapchain_len];
         self.text_descriptor_sets = self.core.device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::builder()
                 .descriptor_pool(self.descriptor_pool)
-                .set_layouts(&self.text_descriptor_set_layouts)
+                .set_layouts(&layouts)
                 .build(),
         )?;
         for (i, &ds) in self.text_descriptor_sets.iter().enumerate() {
@@ -2532,11 +2535,7 @@ impl Drop for VulkanApp {
                 .destroy_descriptor_pool(self.descriptor_pool, None);
 
             self.graphics_descriptor_set_layout.deinit(&self.core);
-            for &descriptor_set_layout in &self.text_descriptor_set_layouts {
-                self.core
-                    .device
-                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
-            }
+            self.text_descriptor_set_layout.deinit(&self.core);
             for &descriptor_set_layout in &self.crosshair_descriptor_set_layouts {
                 self.core
                     .device
