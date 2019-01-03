@@ -139,6 +139,30 @@ unsafe fn new_text_descriptor_set_layout(
     )?)
 }
 
+unsafe fn new_crosshair_descriptor_set_layout(
+    core: &VulkanCore,
+    graphics_texture_sampler: vk::Sampler,
+) -> VkResult<DescriptorSetLayout> {
+    let crosshair_uniforms_layout_binding = DescriptorSetLayoutBinding::new(
+        0,
+        vk::DescriptorType::UNIFORM_BUFFER,
+        1,
+        vk::ShaderStageFlags::VERTEX,
+        vec![],
+    );
+    let sampler_layout_binding = DescriptorSetLayoutBinding::new(
+        1,
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        1,
+        vk::ShaderStageFlags::FRAGMENT,
+        vec![graphics_texture_sampler],
+    );
+    Ok(DescriptorSetLayout::new(
+        core,
+        vec![crosshair_uniforms_layout_binding, sampler_layout_binding],
+    )?)
+}
+
 pub struct VulkanApp {
     pub core: VulkanCore,
     current_frame: usize,
@@ -209,7 +233,7 @@ pub struct VulkanApp {
     crosshair_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     crosshair_descriptor_sets: Vec<vk::DescriptorSet>,
-    crosshair_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    crosshair_descriptor_set_layout: DescriptorSetLayout,
 
     render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
     transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
@@ -311,6 +335,8 @@ impl VulkanApp {
                 new_graphics_descriptor_set_layout(&core, graphics_texture_sampler)?;
             let text_descriptor_set_layout =
                 new_text_descriptor_set_layout(&core, text_texture_sampler)?;
+            let crosshair_descriptor_set_layout =
+                new_crosshair_descriptor_set_layout(&core, graphics_texture_sampler)?;
 
             let mut base = VulkanApp {
                 core,
@@ -382,7 +408,7 @@ impl VulkanApp {
                 crosshair_draw_cmd_bufs: Default::default(),
 
                 crosshair_descriptor_sets: Default::default(),
-                crosshair_descriptor_set_layouts: Default::default(),
+                crosshair_descriptor_set_layout,
 
                 render_pass_cmd_bufs: Default::default(),
                 transfer_cmd_bufs: Default::default(),
@@ -421,7 +447,6 @@ impl VulkanApp {
             base.create_swapchain(screen_width, screen_height)?;
 
             base.create_render_pass()?;
-            base.create_descriptor_set_layouts()?;
             base.create_graphics_pipeline()?;
             base.create_text_pipeline()?;
             base.create_crosshair_pipeline()?;
@@ -922,8 +947,9 @@ impl VulkanApp {
             .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
+        let layouts = vec![self.crosshair_descriptor_set_layout.layout; self.swapchain_len];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.crosshair_descriptor_set_layouts)
+            .set_layouts(&layouts)
             .build();
         let pipeline_layout = self
             .core
@@ -1040,38 +1066,6 @@ impl VulkanApp {
             .dependencies(&dependencies)
             .build();
         self.render_pass = self.core.device.create_render_pass(&render_pass_ci, None)?;
-        Ok(())
-    }
-
-    unsafe fn create_descriptor_set_layouts(&mut self) -> VkResult<()> {
-        // crosshair
-        let crosshair_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .build();
-        let immutable_samplers = [self.graphics_texture_sampler];
-        let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&immutable_samplers)
-            .build();
-        let bindings = [crosshair_uniforms_layout_binding, sampler_layout_binding];
-        let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&bindings)
-            .build();
-
-        for _ in 0..self.swapchain_len {
-            self.crosshair_descriptor_set_layouts.push(
-                self.core
-                    .device
-                    .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
-            );
-        }
-
         Ok(())
     }
 
@@ -2299,10 +2293,11 @@ impl VulkanApp {
             );
         }
 
+        let layouts = vec![self.crosshair_descriptor_set_layout.layout; self.swapchain_len];
         self.crosshair_descriptor_sets = self.core.device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::builder()
                 .descriptor_pool(self.descriptor_pool)
-                .set_layouts(&self.crosshair_descriptor_set_layouts)
+                .set_layouts(&layouts)
                 .build(),
         )?;
         for (i, &ds) in self.crosshair_descriptor_sets.iter().enumerate() {
@@ -2536,11 +2531,7 @@ impl Drop for VulkanApp {
 
             self.graphics_descriptor_set_layout.deinit(&self.core);
             self.text_descriptor_set_layout.deinit(&self.core);
-            for &descriptor_set_layout in &self.crosshair_descriptor_set_layouts {
-                self.core
-                    .device
-                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
-            }
+            self.crosshair_descriptor_set_layout.deinit(&self.core);
 
             for buf in &mut self.text_staging_vertex_buffers {
                 buf.deinit();
