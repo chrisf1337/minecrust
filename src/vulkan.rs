@@ -1,5 +1,6 @@
 pub mod app;
 mod buffer;
+mod descriptor;
 pub mod error;
 mod one_time_command_buffer;
 mod text;

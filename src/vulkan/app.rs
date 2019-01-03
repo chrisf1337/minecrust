@@ -6,6 +6,7 @@ use crate::{
     utils::{clamp, mat4f},
     vulkan::{
         buffer::Buffer,
+        descriptor::{DescriptorSetLayout, DescriptorSetLayoutBinding},
         error::{VulkanError, VulkanResult},
         one_time_command_buffer::OneTimeCommandBuffer,
         text::{GlyphMetrics, TextVertex},
@@ -78,6 +79,29 @@ fn pad_font_bytes(bytes: Vec<u8>) -> Vec<u8> {
     v
 }
 
+unsafe fn new_graphics_descriptor_set_layout(
+    core: &VulkanCore,
+    graphics_texture_sampler: vk::Sampler,
+) -> VkResult<DescriptorSetLayout> {
+    // graphics
+    let sampler_layout_binding = DescriptorSetLayoutBinding::new(
+        1,
+        vk::DescriptorType::SAMPLER,
+        vk::ShaderStageFlags::FRAGMENT,
+        vec![graphics_texture_sampler],
+    );
+    let texture_layout_binding = DescriptorSetLayoutBinding::new(
+        2,
+        vk::DescriptorType::SAMPLED_IMAGE,
+        vk::ShaderStageFlags::FRAGMENT,
+        vec![],
+    );
+    Ok(DescriptorSetLayout::new(
+        &core,
+        vec![sampler_layout_binding, texture_layout_binding],
+    )?)
+}
+
 pub struct VulkanApp {
     pub core: VulkanCore,
     current_frame: usize,
@@ -112,7 +136,7 @@ pub struct VulkanApp {
     graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     graphics_descriptor_sets: Vec<vk::DescriptorSet>,
-    graphics_descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    graphics_descriptor_set_layout: DescriptorSetLayout,
 
     graphics_texture_sampler: vk::Sampler,
 
@@ -208,6 +232,47 @@ impl VulkanApp {
             screen_space_normalize_mat[(1, 2)] = -1.0;
             let screen_space_normalize_mat = mat4f::from_mat3f(screen_space_normalize_mat);
 
+            let graphics_texture_sampler = core.device.create_sampler(
+                &vk::SamplerCreateInfo::builder()
+                    .mag_filter(vk::Filter::NEAREST)
+                    .min_filter(vk::Filter::LINEAR)
+                    .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                    .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                    .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                    .anisotropy_enable(true)
+                    .max_anisotropy(16.0)
+                    .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+                    .unnormalized_coordinates(false)
+                    .compare_enable(false)
+                    .compare_op(vk::CompareOp::ALWAYS)
+                    .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+                    .mip_lod_bias(0.0)
+                    .min_lod(0.0)
+                    .max_lod(100.0)
+                    .build(),
+                None,
+            )?;
+            let text_texture_sampler = core.device.create_sampler(
+                &vk::SamplerCreateInfo::builder()
+                    .mag_filter(vk::Filter::LINEAR)
+                    .min_filter(vk::Filter::LINEAR)
+                    .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                    .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                    .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                    .anisotropy_enable(true)
+                    .max_anisotropy(16.0)
+                    .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+                    .unnormalized_coordinates(false)
+                    .compare_enable(false)
+                    .compare_op(vk::CompareOp::ALWAYS)
+                    .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+                    .build(),
+                None,
+            )?;
+
+            let graphics_descriptor_set_layout =
+                new_graphics_descriptor_set_layout(&core, graphics_texture_sampler)?;
+
             let mut base = VulkanApp {
                 core,
                 current_frame: 0,
@@ -242,9 +307,9 @@ impl VulkanApp {
                 graphics_draw_cmd_bufs: Default::default(),
 
                 graphics_descriptor_sets: Default::default(),
-                graphics_descriptor_set_layouts: Default::default(),
+                graphics_descriptor_set_layout,
 
-                graphics_texture_sampler: Default::default(),
+                graphics_texture_sampler,
 
                 // text
                 text_pipeline: Default::default(),
@@ -259,7 +324,7 @@ impl VulkanApp {
                 text_descriptor_sets: Default::default(),
                 text_descriptor_set_layouts: Default::default(),
 
-                text_texture_sampler: Default::default(),
+                text_texture_sampler,
 
                 // selection
                 selection_pipeline: Default::default(),
@@ -586,8 +651,9 @@ impl VulkanApp {
             .offset(0)
             .build();
         let push_constant_ranges = [push_constant_range];
+        let layouts = vec![self.graphics_descriptor_set_layout.layout; self.swapchain_len];
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.graphics_descriptor_set_layouts)
+            .set_layouts(&layouts)
             .push_constant_ranges(&push_constant_ranges)
             .build();
         self.graphics_pipeline_layout = self
@@ -938,44 +1004,6 @@ impl VulkanApp {
     }
 
     unsafe fn create_descriptor_set_layouts(&mut self) -> VkResult<()> {
-        // graphics
-        let ubo_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .build();
-        let immutable_samplers = [self.graphics_texture_sampler];
-        let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .immutable_samplers(&immutable_samplers)
-            .build();
-        let texture_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(2)
-            .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-        let bindings = [
-            ubo_descriptor_set_layout_binding,
-            sampler_layout_binding,
-            texture_layout_binding,
-        ];
-        let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&bindings)
-            .build();
-
-        for _ in 0..self.swapchain_len {
-            self.graphics_descriptor_set_layouts.push(
-                self.core
-                    .device
-                    .create_descriptor_set_layout(&descriptor_set_layout_ci, None)?,
-            );
-        }
-
         // text
         let text_uniforms_layout_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
@@ -1910,43 +1938,6 @@ impl VulkanApp {
     }
 
     unsafe fn create_texture_samplers(&mut self) -> VulkanResult<()> {
-        self.graphics_texture_sampler = self.core.device.create_sampler(
-            &vk::SamplerCreateInfo::builder()
-                .mag_filter(vk::Filter::NEAREST)
-                .min_filter(vk::Filter::LINEAR)
-                .address_mode_u(vk::SamplerAddressMode::REPEAT)
-                .address_mode_v(vk::SamplerAddressMode::REPEAT)
-                .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                .anisotropy_enable(true)
-                .max_anisotropy(16.0)
-                .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
-                .unnormalized_coordinates(false)
-                .compare_enable(false)
-                .compare_op(vk::CompareOp::ALWAYS)
-                .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
-                .mip_lod_bias(0.0)
-                .min_lod(0.0)
-                .max_lod(100.0)
-                .build(),
-            None,
-        )?;
-        self.text_texture_sampler = self.core.device.create_sampler(
-            &vk::SamplerCreateInfo::builder()
-                .mag_filter(vk::Filter::LINEAR)
-                .min_filter(vk::Filter::LINEAR)
-                .address_mode_u(vk::SamplerAddressMode::REPEAT)
-                .address_mode_v(vk::SamplerAddressMode::REPEAT)
-                .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                .anisotropy_enable(true)
-                .max_anisotropy(16.0)
-                .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
-                .unnormalized_coordinates(false)
-                .compare_enable(false)
-                .compare_op(vk::CompareOp::ALWAYS)
-                .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
-                .build(),
-            None,
-        )?;
         Ok(())
     }
 
@@ -2201,9 +2192,10 @@ impl VulkanApp {
     }
 
     unsafe fn create_descriptor_sets(&mut self) -> VkResult<()> {
+        let layouts = vec![self.graphics_descriptor_set_layout.layout; self.swapchain_len];
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
-            .set_layouts(&self.graphics_descriptor_set_layouts)
+            .set_layouts(&layouts)
             .build();
 
         self.graphics_descriptor_sets = self
@@ -2539,11 +2531,7 @@ impl Drop for VulkanApp {
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
 
-            for &descriptor_set_layout in &self.graphics_descriptor_set_layouts {
-                self.core
-                    .device
-                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
-            }
+            self.graphics_descriptor_set_layout.deinit(&self.core);
             for &descriptor_set_layout in &self.text_descriptor_set_layouts {
                 self.core
                     .device
