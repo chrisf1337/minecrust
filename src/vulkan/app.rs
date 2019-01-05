@@ -26,8 +26,6 @@ use image;
 use std::{collections::HashMap, ffi::CString, fs::File, io::prelude::*, path::Path};
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
-// Pin to swapchain len for now
-const MAX_FRAMES_IN_FLIGHT: usize = 3;
 const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 1 << 20;
 const N_GLYPH_TEXTURES: usize = 256;
 
@@ -2165,9 +2163,6 @@ impl VulkanApp {
                 .push(self.core.device.create_semaphore(&semaphore_ci, None)?);
             self.push_const_semaphores
                 .push(self.core.device.create_semaphore(&semaphore_ci, None)?);
-        }
-
-        for _ in 0..MAX_FRAMES_IN_FLIGHT {
             self.image_available_semaphores
                 .push(self.core.device.create_semaphore(&semaphore_ci, None)?);
             self.render_finished_semaphores
@@ -2630,9 +2625,6 @@ impl Drop for VulkanApp {
                 self.core
                     .device
                     .destroy_semaphore(self.push_const_semaphores[i], None);
-            }
-
-            for i in 0..MAX_FRAMES_IN_FLIGHT {
                 self.core
                     .device
                     .destroy_semaphore(self.render_finished_semaphores[i], None);
@@ -2686,12 +2678,11 @@ impl Renderer for VulkanApp {
                 vk::Fence::null(),
             ) {
                 Ok((image_index, _)) => {
-                    let image_index = image_index as usize;
-                    self.update_text_uniform_buffer(image_index)?;
+                    self.update_text_uniform_buffer(self.current_frame)?;
 
-                    let push_const_cmd_buf = self.new_push_const_cmd_buf(image_index)?;
+                    let push_const_cmd_buf = self.new_push_const_cmd_buf(self.current_frame)?;
                     let cmd_bufs = [push_const_cmd_buf];
-                    let signal_semaphores = [self.push_const_semaphores[image_index]];
+                    let signal_semaphores = [self.push_const_semaphores[self.current_frame]];
                     self.core.device.queue_submit(
                         self.core.graphics_queue,
                         &[vk::SubmitInfo::builder()
@@ -2702,32 +2693,35 @@ impl Renderer for VulkanApp {
                     )?;
 
                     // graphics
-                    self.graphics_staging_vertex_buffers[image_index].copy_data(vertices)?;
+                    self.graphics_staging_vertex_buffers[self.current_frame].copy_data(vertices)?;
 
                     // text
                     self.draw_text(
-                        image_index,
+                        self.current_frame,
                         &format!("{:.0}", fps),
                         Point2f::new(self.screen_width as f32 - 50.0, 10.0),
                         0.5,
                         Color::new(1.0, 0.0, 0.0),
                     )?;
 
-                    let transfer_cmd_buf = self.new_transfer_cmd_buf(image_index)?;
-                    let text_draw_cmd_buf = self.new_text_draw_cmd_buf(image_index)?;
-                    let graphics_draw_cmd_buf = self.new_graphics_draw_cmd_buf(image_index)?;
+                    let transfer_cmd_buf = self.new_transfer_cmd_buf(self.current_frame)?;
+                    let text_draw_cmd_buf = self.new_text_draw_cmd_buf(self.current_frame)?;
+                    let graphics_draw_cmd_buf =
+                        self.new_graphics_draw_cmd_buf(self.current_frame)?;
 
                     self.core.device.queue_submit(
                         self.core.transfer_queue,
                         &[vk::SubmitInfo::builder()
                             .command_buffers(&[transfer_cmd_buf])
-                            .signal_semaphores(&[self.transfer_ownership_semaphores[image_index]])
+                            .signal_semaphores(&[
+                                self.transfer_ownership_semaphores[self.current_frame]
+                            ])
                             .build()],
                         vk::Fence::null(),
                     )?;
 
-                    let command_buffers = [self.take_ownership_cmd_buffers[image_index]];
-                    let wait_semaphores = [self.transfer_ownership_semaphores[image_index]];
+                    let command_buffers = [self.take_ownership_cmd_buffers[self.current_frame]];
+                    let wait_semaphores = [self.transfer_ownership_semaphores[self.current_frame]];
                     let wait_dst_stage_mask = [vk::PipelineStageFlags::VERTEX_INPUT];
                     self.core.device.queue_submit(
                         self.core.graphics_queue,
@@ -2744,14 +2738,14 @@ impl Renderer for VulkanApp {
                     // Start render pass
                     let wait_semaphores = [
                         self.image_available_semaphores[self.current_frame],
-                        self.push_const_semaphores[image_index],
+                        self.push_const_semaphores[self.current_frame],
                     ];
                     let wait_dst_stage_mask = [
                         vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                         vk::PipelineStageFlags::VERTEX_SHADER,
                     ];
                     let command_buffers = [self.new_render_pass_command_buffer(
-                        image_index,
+                        self.current_frame,
                         &[graphics_draw_cmd_buf, text_draw_cmd_buf],
                     )?];
                     let submit_info = vk::SubmitInfo::builder()
@@ -2771,7 +2765,7 @@ impl Renderer for VulkanApp {
                     )?;
 
                     let swapchains = [self.swapchain_handle];
-                    let image_indices = [image_index as u32];
+                    let image_indices = [image_index];
                     let present_info = vk::PresentInfoKHR::builder()
                         .wait_semaphores(&signal_semaphores)
                         .swapchains(&swapchains)
@@ -2789,7 +2783,7 @@ impl Renderer for VulkanApp {
                         Ok(false) => (),
                         Err(e) => return Err(e.into()),
                     }
-                    self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+                    self.current_frame = (self.current_frame + 1) % self.swapchain_len;
                     Ok(())
                 }
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
