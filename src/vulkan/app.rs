@@ -26,7 +26,8 @@ use image;
 use std::{collections::HashMap, ffi::CString, fs::File, io::prelude::*, path::Path};
 use winit::{dpi::LogicalSize, EventsLoop, Window};
 
-const MAX_FRAMES_IN_FLIGHT: usize = 5;
+// Pin to swapchain len for now
+const MAX_FRAMES_IN_FLIGHT: usize = 3;
 const VERTEX_BUFFER_CAPCITY: vk::DeviceSize = 1 << 20;
 const N_GLYPH_TEXTURES: usize = 256;
 
@@ -179,6 +180,7 @@ pub struct VulkanApp {
 
     transfer_command_pool: vk::CommandPool,
     descriptor_pool: vk::DescriptorPool,
+    push_const_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     // graphics
     graphics_command_pool: vk::CommandPool,
@@ -252,7 +254,7 @@ pub struct VulkanApp {
 
     // sync
     transfer_ownership_semaphores: Vec<vk::Semaphore>,
-    push_constant_semaphore: vk::Semaphore,
+    push_const_semaphores: Vec<vk::Semaphore>,
     image_available_semaphores: Vec<vk::Semaphore>,
     render_finished_semaphores: Vec<vk::Semaphore>,
     in_flight_fences: Vec<vk::Fence>,
@@ -353,6 +355,7 @@ impl VulkanApp {
 
                 transfer_command_pool: Default::default(),
                 descriptor_pool: Default::default(),
+                push_const_cmd_bufs: Default::default(),
 
                 // graphics
                 graphics_command_pool: Default::default(),
@@ -428,7 +431,7 @@ impl VulkanApp {
                 },
 
                 // sync
-                push_constant_semaphore: Default::default(),
+                push_const_semaphores: Default::default(),
                 image_available_semaphores: Default::default(),
                 render_finished_semaphores: Default::default(),
                 in_flight_fences: Default::default(),
@@ -1404,8 +1407,48 @@ impl VulkanApp {
         Ok(cmd_buf)
     }
 
+    fn new_push_const_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = if let Some(cmd_buf) = self.push_const_cmd_bufs[index] {
+            cmd_buf
+        } else {
+            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(self.graphics_command_pool)
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_buffer_count(1)
+                .build();
+            unsafe {
+                self.core
+                    .device
+                    .allocate_command_buffers(&command_buffer_alloc_info)?[0]
+            }
+        };
+
+        let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
+        LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
+
+        let begin_info = vk::CommandBufferBeginInfo::builder().build();
+
+        unsafe {
+            self.core
+                .device
+                .begin_command_buffer(cmd_buf, &begin_info)?;
+            self.core.device.cmd_push_constants(
+                cmd_buf,
+                self.graphics_pipeline_layout,
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                &data,
+            );
+            self.core.device.end_command_buffer(cmd_buf)?;
+        }
+
+        self.push_const_cmd_bufs[index] = Some(cmd_buf);
+        Ok(cmd_buf)
+    }
+
     unsafe fn create_buffers(&mut self) -> VkResult<()> {
         self.render_pass_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        self.push_const_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
         for _ in 0..self.swapchain_len {
             let mut staging_buf = Buffer::new(
@@ -2108,17 +2151,19 @@ impl VulkanApp {
 
     unsafe fn create_sync_objects(&mut self) -> VkResult<()> {
         let semaphore_ci = vk::SemaphoreCreateInfo::builder().build();
-        self.push_constant_semaphore = self.core.device.create_semaphore(&semaphore_ci, None)?;
-
         let fence_ci = vk::FenceCreateInfo::builder()
             .flags(vk::FenceCreateFlags::SIGNALED)
             .build();
+
         self.image_available_semaphores = vec![];
         self.render_finished_semaphores = vec![];
+        self.push_const_semaphores = vec![];
         self.in_flight_fences = vec![];
 
         for _ in 0..self.swapchain_len {
             self.transfer_ownership_semaphores
+                .push(self.core.device.create_semaphore(&semaphore_ci, None)?);
+            self.push_const_semaphores
                 .push(self.core.device.create_semaphore(&semaphore_ci, None)?);
         }
 
@@ -2578,14 +2623,13 @@ impl Drop for VulkanApp {
                 buf.deinit();
             }
 
-            self.core
-                .device
-                .destroy_semaphore(self.push_constant_semaphore, None);
-
             for i in 0..self.swapchain_len {
                 self.core
                     .device
                     .destroy_semaphore(self.transfer_ownership_semaphores[i], None);
+                self.core
+                    .device
+                    .destroy_semaphore(self.push_const_semaphores[i], None);
             }
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
@@ -2645,21 +2689,17 @@ impl Renderer for VulkanApp {
                     let image_index = image_index as usize;
                     self.update_text_uniform_buffer(image_index)?;
 
-                    let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
-                    LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
-                    let command_buffer = OneTimeCommandBuffer::new(
-                        &self.core.device,
+                    let push_const_cmd_buf = self.new_push_const_cmd_buf(image_index)?;
+                    let cmd_bufs = [push_const_cmd_buf];
+                    let signal_semaphores = [self.push_const_semaphores[image_index]];
+                    self.core.device.queue_submit(
                         self.core.graphics_queue,
-                        self.graphics_command_pool,
+                        &[vk::SubmitInfo::builder()
+                            .command_buffers(&cmd_bufs)
+                            .signal_semaphores(&signal_semaphores)
+                            .build()],
+                        vk::Fence::null(),
                     )?;
-                    self.core.device.cmd_push_constants(
-                        command_buffer.command_buffer,
-                        self.graphics_pipeline_layout,
-                        vk::ShaderStageFlags::VERTEX,
-                        0,
-                        &data,
-                    );
-                    command_buffer.submit(&[self.push_constant_semaphore])?;
 
                     // graphics
                     self.graphics_staging_vertex_buffers[image_index].copy_data(vertices)?;
@@ -2704,7 +2744,7 @@ impl Renderer for VulkanApp {
                     // Start render pass
                     let wait_semaphores = [
                         self.image_available_semaphores[self.current_frame],
-                        self.push_constant_semaphore,
+                        self.push_const_semaphores[image_index],
                     ];
                     let wait_dst_stage_mask = [
                         vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
