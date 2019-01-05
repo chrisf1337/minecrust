@@ -42,30 +42,39 @@ impl DescriptorSetLayoutBinding {
 
 #[derive(Debug, Clone)]
 pub struct DescriptorSetLayout {
-    pub layout: vk::DescriptorSetLayout,
+    pub layout: Option<vk::DescriptorSetLayout>,
     pub bindings: Vec<DescriptorSetLayoutBinding>,
 }
 
 impl DescriptorSetLayout {
-    pub fn new(
-        core: &VulkanCore,
-        bindings: Vec<DescriptorSetLayoutBinding>,
-    ) -> VkResult<DescriptorSetLayout> {
+    pub fn new(bindings: Vec<DescriptorSetLayoutBinding>) -> VkResult<DescriptorSetLayout> {
+        Ok(DescriptorSetLayout {
+            layout: None,
+            bindings,
+        })
+    }
+
+    pub fn init(&mut self, core: &VulkanCore) -> VkResult<()> {
+        let vk_bindings = self.bindings.iter().map(|l| l.binding).collect::<Vec<_>>();
+        let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&vk_bindings);
         unsafe {
-            let vk_bindings = bindings.iter().map(|l| l.binding).collect::<Vec<_>>();
-            let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&vk_bindings);
-            let layout = core
-                .device
-                .create_descriptor_set_layout(&create_info, None)?;
-            Ok(DescriptorSetLayout { layout, bindings })
+            self.layout = Some(
+                core.device
+                    .create_descriptor_set_layout(&create_info, None)?,
+            );
         }
+        Ok(())
+    }
+
+    pub fn layout(&self) -> vk::DescriptorSetLayout {
+        self.layout.unwrap()
     }
 
     pub fn deinit(&self, core: &VulkanCore) {
         unsafe {
-            core.device.destroy_descriptor_set_layout(self.layout, None);
+            if let Some(layout) = self.layout {
+                core.device.destroy_descriptor_set_layout(layout, None);
+            }
         }
     }
 }
-
-pub struct DescriptorSet {}

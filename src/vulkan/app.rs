@@ -80,7 +80,6 @@ fn pad_font_bytes(bytes: Vec<u8>) -> Vec<u8> {
 }
 
 unsafe fn new_graphics_descriptor_set_layout(
-    core: &VulkanCore,
     graphics_texture_sampler: vk::Sampler,
 ) -> VkResult<DescriptorSetLayout> {
     // graphics
@@ -98,14 +97,13 @@ unsafe fn new_graphics_descriptor_set_layout(
         vk::ShaderStageFlags::FRAGMENT,
         vec![],
     );
-    Ok(DescriptorSetLayout::new(
-        &core,
-        vec![sampler_layout_binding, texture_layout_binding],
-    )?)
+    Ok(DescriptorSetLayout::new(vec![
+        sampler_layout_binding,
+        texture_layout_binding,
+    ])?)
 }
 
 unsafe fn new_text_descriptor_set_layout(
-    core: &VulkanCore,
     text_texture_sampler: vk::Sampler,
 ) -> VkResult<DescriptorSetLayout> {
     let text_uniforms_layout_binding = DescriptorSetLayoutBinding::new(
@@ -129,18 +127,14 @@ unsafe fn new_text_descriptor_set_layout(
         vk::ShaderStageFlags::FRAGMENT,
         vec![],
     );
-    Ok(DescriptorSetLayout::new(
-        core,
-        vec![
-            text_uniforms_layout_binding,
-            sampler_layout_binding,
-            glyph_textures_binding,
-        ],
-    )?)
+    Ok(DescriptorSetLayout::new(vec![
+        text_uniforms_layout_binding,
+        sampler_layout_binding,
+        glyph_textures_binding,
+    ])?)
 }
 
 unsafe fn new_crosshair_descriptor_set_layout(
-    core: &VulkanCore,
     graphics_texture_sampler: vk::Sampler,
 ) -> VkResult<DescriptorSetLayout> {
     let crosshair_uniforms_layout_binding = DescriptorSetLayoutBinding::new(
@@ -157,10 +151,10 @@ unsafe fn new_crosshair_descriptor_set_layout(
         vk::ShaderStageFlags::FRAGMENT,
         vec![graphics_texture_sampler],
     );
-    Ok(DescriptorSetLayout::new(
-        core,
-        vec![crosshair_uniforms_layout_binding, sampler_layout_binding],
-    )?)
+    Ok(DescriptorSetLayout::new(vec![
+        crosshair_uniforms_layout_binding,
+        sampler_layout_binding,
+    ])?)
 }
 
 pub struct VulkanApp {
@@ -332,11 +326,10 @@ impl VulkanApp {
             )?;
 
             let graphics_descriptor_set_layout =
-                new_graphics_descriptor_set_layout(&core, graphics_texture_sampler)?;
-            let text_descriptor_set_layout =
-                new_text_descriptor_set_layout(&core, text_texture_sampler)?;
+                new_graphics_descriptor_set_layout(graphics_texture_sampler)?;
+            let text_descriptor_set_layout = new_text_descriptor_set_layout(text_texture_sampler)?;
             let crosshair_descriptor_set_layout =
-                new_crosshair_descriptor_set_layout(&core, graphics_texture_sampler)?;
+                new_crosshair_descriptor_set_layout(graphics_texture_sampler)?;
 
             let mut base = VulkanApp {
                 core,
@@ -447,6 +440,8 @@ impl VulkanApp {
             base.create_swapchain(screen_width, screen_height)?;
 
             base.create_render_pass()?;
+
+            base.init_descriptor_set_layouts()?;
             base.create_graphics_pipeline()?;
             base.create_text_pipeline()?;
             base.create_crosshair_pipeline()?;
@@ -631,6 +626,50 @@ impl VulkanApp {
         Ok(())
     }
 
+    fn create_descriptor_pool(&mut self) -> VkResult<()> {
+        let mut bindings = HashMap::new();
+        let layouts = [
+            &self.graphics_descriptor_set_layout,
+            &self.text_descriptor_set_layout,
+            &self.crosshair_descriptor_set_layout,
+        ];
+        for layout in &layouts {
+            for binding in &layout.bindings {
+                *bindings.entry(binding.ty).or_insert(0) += 1;
+            }
+        }
+
+        let pool_sizes = bindings
+            .into_iter()
+            .map(|(k, v)| {
+                vk::DescriptorPoolSize::builder()
+                    .ty(k)
+                    .descriptor_count(v * self.swapchain_len as u32)
+                    .build()
+            })
+            .collect::<Vec<_>>();
+        let create_info = vk::DescriptorPoolCreateInfo::builder()
+            .pool_sizes(&pool_sizes)
+            .max_sets((self.swapchain_len * layouts.len()) as u32)
+            .build();
+
+        unsafe {
+            self.descriptor_pool = self
+                .core
+                .device
+                .create_descriptor_pool(&create_info, None)?;
+        }
+
+        Ok(())
+    }
+
+    fn init_descriptor_set_layouts(&mut self) -> VkResult<()> {
+        self.graphics_descriptor_set_layout.init(&self.core)?;
+        self.text_descriptor_set_layout.init(&self.core)?;
+        self.crosshair_descriptor_set_layout.init(&self.core)?;
+        Ok(())
+    }
+
     unsafe fn create_graphics_pipeline(&mut self) -> VulkanResult<()> {
         let vert_module = self.create_shader_module_from_file("src/shaders/graphics-vert.spv")?;
         let frag_module = self.create_shader_module_from_file("src/shaders/graphics-frag.spv")?;
@@ -715,7 +754,7 @@ impl VulkanApp {
             .offset(0)
             .build();
         let push_constant_ranges = [push_constant_range];
-        let layouts = vec![self.graphics_descriptor_set_layout.layout; self.swapchain_len];
+        let layouts = vec![self.graphics_descriptor_set_layout.layout(); self.swapchain_len];
         let graphics_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&layouts)
             .push_constant_ranges(&push_constant_ranges)
@@ -830,7 +869,7 @@ impl VulkanApp {
             .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
-        let layouts = vec![self.text_descriptor_set_layout.layout; self.swapchain_len];
+        let layouts = vec![self.text_descriptor_set_layout.layout(); self.swapchain_len];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&layouts)
             .build();
@@ -947,7 +986,7 @@ impl VulkanApp {
             .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
-        let layouts = vec![self.crosshair_descriptor_set_layout.layout; self.swapchain_len];
+        let layouts = vec![self.crosshair_descriptor_set_layout.layout(); self.swapchain_len];
         let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(&layouts)
             .build();
@@ -1265,7 +1304,7 @@ impl VulkanApp {
             vk::PipelineBindPoint::GRAPHICS,
             self.text_pipeline_layout,
             0,
-            &self.text_descriptor_sets,
+            &[self.text_descriptor_sets[index]],
             &[],
         );
 
@@ -1604,7 +1643,7 @@ impl VulkanApp {
             vk::PipelineBindPoint::GRAPHICS,
             self.graphics_pipeline_layout,
             0,
-            &self.graphics_descriptor_sets,
+            &[self.graphics_descriptor_sets[index]],
             &[],
         );
 
@@ -2162,33 +2201,8 @@ impl VulkanApp {
         Ok(())
     }
 
-    unsafe fn create_descriptor_pool(&mut self) -> VkResult<()> {
-        let uniforms_pool_size = vk::DescriptorPoolSize::builder()
-            .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count((self.swapchain_len * 3) as u32)
-            .build();
-        let sampler_pool_size = vk::DescriptorPoolSize::builder()
-            .ty(vk::DescriptorType::SAMPLER)
-            .descriptor_count((self.swapchain_len * 3) as u32)
-            .build();
-        let texture_pool_size = vk::DescriptorPoolSize::builder()
-            .ty(vk::DescriptorType::SAMPLED_IMAGE)
-            .descriptor_count((self.swapchain_len * 2) as u32)
-            .build();
-        let pool_sizes = [uniforms_pool_size, sampler_pool_size, texture_pool_size];
-        let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets((self.swapchain_len * 3) as u32)
-            .build();
-        self.descriptor_pool = self
-            .core
-            .device
-            .create_descriptor_pool(&descriptor_pool_ci, None)?;
-        Ok(())
-    }
-
     unsafe fn create_descriptor_sets(&mut self) -> VkResult<()> {
-        let layouts = vec![self.graphics_descriptor_set_layout.layout; self.swapchain_len];
+        let layouts = vec![self.graphics_descriptor_set_layout.layout(); self.swapchain_len];
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
             .set_layouts(&layouts)
@@ -2233,7 +2247,7 @@ impl VulkanApp {
             );
         }
 
-        let layouts = vec![self.text_descriptor_set_layout.layout; self.swapchain_len];
+        let layouts = vec![self.text_descriptor_set_layout.layout(); self.swapchain_len];
         self.text_descriptor_sets = self.core.device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::builder()
                 .descriptor_pool(self.descriptor_pool)
@@ -2293,7 +2307,7 @@ impl VulkanApp {
             );
         }
 
-        let layouts = vec![self.crosshair_descriptor_set_layout.layout; self.swapchain_len];
+        let layouts = vec![self.crosshair_descriptor_set_layout.layout(); self.swapchain_len];
         self.crosshair_descriptor_sets = self.core.device.allocate_descriptor_sets(
             &vk::DescriptorSetAllocateInfo::builder()
                 .descriptor_pool(self.descriptor_pool)
