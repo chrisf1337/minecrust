@@ -37,8 +37,9 @@ impl<'a> OneTimeCommandBuffer<'a> {
     pub fn submit(&self, signal_semaphores: &[vk::Semaphore]) -> VulkanResult<()> {
         unsafe {
             self.device.end_command_buffer(self.command_buffer)?;
+            let cmd_bufs = [self.command_buffer];
             let submit_info = vk::SubmitInfo::builder()
-                .command_buffers(&[self.command_buffer])
+                .command_buffers(&cmd_bufs)
                 .signal_semaphores(signal_semaphores)
                 .build();
             let fence_ci = vk::FenceCreateInfo::builder().build();
