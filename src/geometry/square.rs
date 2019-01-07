@@ -18,11 +18,11 @@ impl Square {
 }
 
 impl PrimitiveGeometry for Square {
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f> {
+    fn vtx_data(&self, transform: &Transform3f) -> Vec<Vertex3f> {
         self.rect.vtx_data(transform)
     }
 
-    fn vertices(&mut self, transform: &Transform3f) -> Vec<Point3f> {
+    fn vertices(&self, transform: &Transform3f) -> Vec<Point3f> {
         self.rect.vertices(transform)
     }
 

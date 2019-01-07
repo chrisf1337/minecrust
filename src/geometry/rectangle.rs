@@ -40,14 +40,14 @@ impl Rectangle {
 }
 
 impl PrimitiveGeometry for Rectangle {
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f> {
+    fn vtx_data(&self, transform: &Transform3f) -> Vec<Vertex3f> {
         vec![0, 1, 2, 0, 2, 3]
             .into_iter()
             .map(|i| self.vertices[i].transform(transform))
             .collect()
     }
 
-    fn vertices(&mut self, transform: &Transform3f) -> Vec<Point3f> {
+    fn vertices(&self, transform: &Transform3f) -> Vec<Point3f> {
         self.vertices
             .iter()
             .map(|v| v.transform(transform).pos)

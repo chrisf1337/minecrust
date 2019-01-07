@@ -11,7 +11,7 @@ layout (binding = 1) uniform sampler texSampler;
 layout (binding = 2) uniform texture2D glyphTextures[256];
 
 void main() {
-    vec4 color = texture(sampler2D(glyphTextures[inCharIdx], texSampler), inUv);
+    vec4 color = inColor * texture(sampler2D(glyphTextures[inCharIdx], texSampler), inUv);
     if (color.a <= 0.3) {
         discard;
     }

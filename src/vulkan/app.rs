@@ -160,6 +160,19 @@ unsafe fn new_crosshair_descriptor_set_layout(
     ])?)
 }
 
+unsafe fn new_selection_descriptor_set_layout(
+    graphics_texture_sampler: vk::Sampler,
+) -> VkResult<DescriptorSetLayout> {
+    let sampler_layout_binding = DescriptorSetLayoutBinding::new(
+        0,
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        1,
+        vk::ShaderStageFlags::FRAGMENT,
+        vec![graphics_texture_sampler],
+    );
+    Ok(DescriptorSetLayout::new(vec![sampler_layout_binding])?)
+}
+
 pub struct VulkanApp {
     pub core: VulkanCore,
     current_frame: usize,
@@ -218,9 +231,12 @@ pub struct VulkanApp {
     selection_pipeline: vk::Pipeline,
     selection_pipeline_layout: vk::PipelineLayout,
 
-    selection_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
-    selection_vertex_buffers: Vec<Buffer<TextVertex>>,
+    selection_staging_vertex_buffers: Vec<Buffer<Vertex3f>>,
+    selection_vertex_buffers: Vec<Buffer<Vertex3f>>,
     selection_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+
+    selection_descriptor_sets: Vec<vk::DescriptorSet>,
+    selection_descriptor_set_layout: DescriptorSetLayout,
 
     // crosshair
     crosshair_pipeline: vk::Pipeline,
@@ -335,6 +351,8 @@ impl VulkanApp {
             let text_descriptor_set_layout = new_text_descriptor_set_layout(text_texture_sampler)?;
             let crosshair_descriptor_set_layout =
                 new_crosshair_descriptor_set_layout(graphics_texture_sampler)?;
+            let selection_descriptor_set_layout =
+                new_selection_descriptor_set_layout(graphics_texture_sampler)?;
 
             let crosshair_staging_vertex_buffer = Buffer::new(
                 &core,
@@ -411,6 +429,9 @@ impl VulkanApp {
                 selection_vertex_buffers: Default::default(),
                 selection_draw_cmd_bufs: Default::default(),
 
+                selection_descriptor_sets: Default::default(),
+                selection_descriptor_set_layout,
+
                 // crosshair
                 crosshair_pipeline: Default::default(),
                 crosshair_pipeline_layout: Default::default(),
@@ -464,6 +485,7 @@ impl VulkanApp {
             base.create_graphics_pipeline()?;
             base.create_text_pipeline()?;
             base.create_crosshair_pipeline()?;
+            base.create_selection_pipeline()?;
 
             base.create_command_pools()?;
 
@@ -497,16 +519,22 @@ impl VulkanApp {
                 base.glyph_metrics.push(glyph.metrics().into());
             }
 
-            let texture = base.create_texture_image("assets/texture.jpg")?;
-            let cobblestone_texture =
-                base.create_texture_image("assets/cobblestone-border-arrow.png")?;
-            base.textures.insert("texture".to_owned(), texture);
-            base.textures
-                .insert("cobblestone".to_owned(), cobblestone_texture);
-
-            let crosshair_texture = base.create_texture_image("assets/crosshair.png")?;
-            base.textures
-                .insert("crosshair".to_owned(), crosshair_texture);
+            base.textures.insert(
+                "texture".to_owned(),
+                base.create_texture_image("assets/texture.jpg")?,
+            );
+            base.textures.insert(
+                "cobblestone".to_owned(),
+                base.create_texture_image("assets/cobblestone-border-arrow.png")?,
+            );
+            base.textures.insert(
+                "crosshair".to_owned(),
+                base.create_texture_image("assets/crosshair.png")?,
+            );
+            base.textures.insert(
+                "selection".to_owned(),
+                base.create_texture_image("assets/selection.png")?,
+            );
 
             base.crosshair_staging_vertex_buffer.init(&base.core)?;
             base.crosshair_vertex_buffer.init(&base.core)?;
@@ -664,6 +692,7 @@ impl VulkanApp {
             &self.graphics_descriptor_set_layout,
             &self.text_descriptor_set_layout,
             &self.crosshair_descriptor_set_layout,
+            &self.selection_descriptor_set_layout,
         ];
         for layout in &layouts {
             for binding in &layout.bindings {
@@ -699,6 +728,7 @@ impl VulkanApp {
         self.graphics_descriptor_set_layout.init(&self.core)?;
         self.text_descriptor_set_layout.init(&self.core)?;
         self.crosshair_descriptor_set_layout.init(&self.core)?;
+        self.selection_descriptor_set_layout.init(&self.core)?;
         Ok(())
     }
 
@@ -1140,6 +1170,129 @@ impl VulkanApp {
         Ok(())
     }
 
+    unsafe fn create_selection_pipeline(&mut self) -> VulkanResult<()> {
+        let vert_module = self.create_shader_module_from_file("src/shaders/selection-vert.spv")?;
+        let frag_module = self.create_shader_module_from_file("src/shaders/selection-frag.spv")?;
+        let shader_stage_name = CString::new("main")?;
+        let vert_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vert_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let frag_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(frag_module)
+            .name(shader_stage_name.as_c_str())
+            .build();
+        let shader_stages = [vert_shader_stage_create_info, frag_shader_stage_create_info];
+
+        let vertex_binding_descriptions = [Vertex3f::binding_description()];
+        let vertex_attribute_descriptions = Vertex3f::attribute_descriptions();
+
+        let vertex_input_state_ci = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions)
+            .build();
+
+        let input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .primitive_restart_enable(false);
+        let viewport = vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(self.swapchain_extent.width as f32)
+            .height(self.swapchain_extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0)
+            .build();
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: self.swapchain_extent,
+        };
+        let viewports = [viewport];
+        let scissors = [scissor];
+        let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
+            .viewports(&viewports)
+            .scissors(&scissors)
+            .build();
+        let rasterizer_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::BACK)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false)
+            .build();
+        let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
+            .sample_shading_enable(true)
+            .rasterization_samples(self.msaa_samples)
+            .min_sample_shading(0.2)
+            .build();
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::all())
+            .blend_enable(true)
+            .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .color_blend_op(vk::BlendOp::ADD)
+            .src_alpha_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .alpha_blend_op(vk::BlendOp::ADD)
+            .build();
+        let attachments = [color_blend_attachment];
+        let color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op_enable(false)
+            .attachments(&attachments)
+            .build();
+        let depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false);
+        let push_constant_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .size(std::mem::size_of::<UniformPushConstants>() as u32)
+            .offset(0)
+            .build();
+        let push_constant_ranges = [push_constant_range];
+        let layouts = vec![self.selection_descriptor_set_layout.layout(); self.swapchain_len];
+        let selection_pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
+            .set_layouts(&layouts)
+            .push_constant_ranges(&push_constant_ranges)
+            .build();
+        self.selection_pipeline_layout = self
+            .core
+            .device
+            .create_pipeline_layout(&selection_pipeline_layout_ci, None)?;
+
+        let pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&shader_stages)
+            .vertex_input_state(&vertex_input_state_ci)
+            .input_assembly_state(&input_assembly_state_ci)
+            .viewport_state(&viewport_state_ci)
+            .rasterization_state(&rasterizer_state_ci)
+            .multisample_state(&multisample_state_ci)
+            .color_blend_state(&color_blend_state_ci)
+            .depth_stencil_state(&depth_stencil_state_ci)
+            .layout(self.selection_pipeline_layout)
+            .render_pass(self.render_pass)
+            .subpass(0)
+            .build();
+        let pipeline_cis = [pipeline_ci];
+        self.selection_pipeline = self
+            .core
+            .device
+            .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
+            .map_err(|x| x.1)?[0];
+
+        // clean up shader modules
+        self.core.device.destroy_shader_module(vert_module, None);
+        self.core.device.destroy_shader_module(frag_module, None);
+
+        Ok(())
+    }
+
     unsafe fn create_framebuffers(&mut self) -> VkResult<()> {
         self.swapchain_framebuffers = vec![];
         for &swapchain_image_view in &self.swapchain_image_views {
@@ -1360,7 +1513,11 @@ impl VulkanApp {
         Ok(cmd_buf)
     }
 
-    unsafe fn new_transfer_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+    unsafe fn new_transfer_cmd_buf(
+        &mut self,
+        index: usize,
+        selection_active: bool,
+    ) -> VkResult<vk::CommandBuffer> {
         let cmd_buf = if let Some(cmd_buf) = self.transfer_cmd_bufs[index] {
             cmd_buf
         } else {
@@ -1385,7 +1542,6 @@ impl VulkanApp {
             cmd_buf,
             self.graphics_staging_vertex_buffers[index].buffer(),
             self.graphics_vertex_buffers[index].buffer(),
-            // FIXME: need to change this when buf_len increases
             &[vk::BufferCopy::builder()
                 .size(self.graphics_staging_vertex_buffers[index].buf_len)
                 .build()],
@@ -1395,21 +1551,21 @@ impl VulkanApp {
             cmd_buf,
             self.text_staging_vertex_buffers[index].buffer(),
             self.text_vertex_buffers[index].buffer(),
-            // FIXME: need to change this when buf_len increases
             &[vk::BufferCopy::builder()
                 .size(self.text_staging_vertex_buffers[index].buf_len)
                 .build()],
         );
 
-        self.core.device.cmd_copy_buffer(
-            cmd_buf,
-            self.selection_staging_vertex_buffers[index].buffer(),
-            self.selection_vertex_buffers[index].buffer(),
-            // FIXME: need to change this when buf_len increases
-            &[vk::BufferCopy::builder()
-                .size(self.selection_staging_vertex_buffers[index].buf_len)
-                .build()],
-        );
+        if selection_active {
+            self.core.device.cmd_copy_buffer(
+                cmd_buf,
+                self.selection_staging_vertex_buffers[index].buffer(),
+                self.selection_vertex_buffers[index].buffer(),
+                &[vk::BufferCopy::builder()
+                    .size(self.selection_staging_vertex_buffers[index].buf_len)
+                    .build()],
+            );
+        }
 
         self.core.device.cmd_pipeline_barrier(
             cmd_buf,
@@ -1604,6 +1760,76 @@ impl VulkanApp {
         Ok(cmd_buf)
     }
 
+    fn new_selection_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = if let Some(cmd_buf) = self.selection_draw_cmd_bufs[index] {
+            cmd_buf
+        } else {
+            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(self.graphics_command_pool)
+                .level(vk::CommandBufferLevel::SECONDARY)
+                .command_buffer_count(1)
+                .build();
+            unsafe {
+                self.core
+                    .device
+                    .allocate_command_buffers(&command_buffer_alloc_info)?[0]
+            }
+        };
+
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .inheritance_info(
+                &vk::CommandBufferInheritanceInfo::builder()
+                    .render_pass(self.render_pass)
+                    .subpass(0)
+                    .build(),
+            )
+            .flags(
+                vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE
+                    | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            )
+            .build();
+
+        unsafe {
+            self.core
+                .device
+                .begin_command_buffer(cmd_buf, &begin_info)?;
+
+            self.core.device.cmd_bind_pipeline(
+                cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.selection_pipeline,
+            );
+            self.core.device.cmd_bind_vertex_buffers(
+                cmd_buf,
+                0,
+                &[self.selection_vertex_buffers[index].buffer()],
+                &[0],
+            );
+            self.core.device.cmd_bind_descriptor_sets(
+                cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.selection_pipeline_layout,
+                0,
+                &[self.selection_descriptor_sets[index]],
+                &[],
+            );
+
+            self.core.device.cmd_draw(
+                cmd_buf,
+                self.selection_staging_vertex_buffers[index].len as u32,
+                1,
+                0,
+                0,
+            );
+
+            self.core.device.end_command_buffer(cmd_buf)?;
+        }
+
+        self.selection_draw_cmd_bufs[index] = Some(cmd_buf);
+
+        Ok(cmd_buf)
+    }
+
     fn new_crosshair_draw_cmd_buf(&self, index: usize) -> VkResult<vk::CommandBuffer> {
         let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.graphics_command_pool)
@@ -1711,6 +1937,7 @@ impl VulkanApp {
         self.push_const_cmd_bufs = vec![Default::default(); self.swapchain_len];
 
         for _ in 0..self.swapchain_len {
+            // graphics
             let mut staging_buf = Buffer::new_init(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
@@ -1727,6 +1954,7 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
 
+            // text
             let mut staging_buf = Buffer::new_init(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
@@ -1743,6 +1971,7 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
 
+            // selection
             let mut staging_buf = Buffer::new_init(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
@@ -1874,6 +2103,7 @@ impl VulkanApp {
             self.create_graphics_pipeline()?;
             self.create_text_pipeline()?;
             self.create_crosshair_pipeline()?;
+            self.create_selection_pipeline()?;
             self.create_color_resources()?;
             self.create_depth_resources()?;
             self.create_framebuffers()?;
@@ -2032,7 +2262,7 @@ impl VulkanApp {
         ))
     }
 
-    unsafe fn create_texture_image<P: AsRef<Path>>(&mut self, path: P) -> VulkanResult<Texture> {
+    unsafe fn create_texture_image<P: AsRef<Path>>(&self, path: P) -> VulkanResult<Texture> {
         let img = image::open(path)?.to_rgba();
         let (img_width, img_height) = img.dimensions();
         let mip_levels = f32::floor(f32::log2(u32::max(img_width, img_height) as f32)) as u32 + 1;
@@ -2599,6 +2829,37 @@ impl VulkanApp {
             );
         }
 
+        let layouts = vec![self.selection_descriptor_set_layout.layout(); self.swapchain_len];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.descriptor_pool)
+            .set_layouts(&layouts)
+            .build();
+
+        self.selection_descriptor_sets = self
+            .core
+            .device
+            .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
+        for &ds in &self.selection_descriptor_sets {
+            // binding 0: sampler
+            let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                .image_view(self.textures["selection"].view)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .sampler(self.graphics_texture_sampler)
+                .build();
+            let image_info = [sampler_descriptor_image_info];
+            let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                .dst_set(ds)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&image_info)
+                .build();
+
+            self.core
+                .device
+                .update_descriptor_sets(&[sampler_write_descriptor_set], &[]);
+        }
+
         Ok(())
     }
 
@@ -2794,6 +3055,7 @@ impl Drop for VulkanApp {
             self.graphics_descriptor_set_layout.deinit(&self.core);
             self.text_descriptor_set_layout.deinit(&self.core);
             self.crosshair_descriptor_set_layout.deinit(&self.core);
+            self.selection_descriptor_set_layout.deinit(&self.core);
 
             for buf in &mut self.text_staging_vertex_buffers {
                 buf.deinit();
@@ -2856,7 +3118,11 @@ impl Renderer for VulkanApp {
     fn draw_frame(
         &mut self,
         game_state: &GameState,
-        RenderData { vertices, fps }: &RenderData,
+        RenderData {
+            vertices,
+            fps,
+            selection_vertices,
+        }: &RenderData,
         resized: bool,
     ) -> RendererResult<()> {
         unsafe {
@@ -2902,6 +3168,11 @@ impl Renderer for VulkanApp {
                     // graphics
                     self.graphics_staging_vertex_buffers[image_index].copy_data(vertices)?;
 
+                    // selection
+                    if let Some(vertices) = selection_vertices {
+                        self.selection_staging_vertex_buffers[image_index].copy_data(vertices)?;
+                    }
+
                     // text
                     self.draw_text(
                         image_index,
@@ -2911,10 +3182,8 @@ impl Renderer for VulkanApp {
                         Color::new(1.0, 0.0, 0.0),
                     )?;
 
-                    let transfer_cmd_buf = self.new_transfer_cmd_buf(image_index)?;
-                    let text_draw_cmd_buf = self.new_text_draw_cmd_buf(image_index)?;
-                    let graphics_draw_cmd_buf = self.new_graphics_draw_cmd_buf(image_index)?;
-                    let crosshair_draw_cmd_buf = self.crosshair_draw_cmd_bufs[image_index];
+                    let transfer_cmd_buf =
+                        self.new_transfer_cmd_buf(image_index, selection_vertices.is_some())?;
 
                     self.core.device.queue_submit(
                         self.core.transfer_queue,
@@ -2949,14 +3218,27 @@ impl Renderer for VulkanApp {
                         vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                         vk::PipelineStageFlags::VERTEX_SHADER,
                     ];
-                    let command_buffers = [self.new_render_pass_command_buffer(
-                        image_index,
-                        &[
+
+                    let text_draw_cmd_buf = self.new_text_draw_cmd_buf(image_index)?;
+                    let graphics_draw_cmd_buf = self.new_graphics_draw_cmd_buf(image_index)?;
+                    let crosshair_draw_cmd_buf = self.crosshair_draw_cmd_bufs[image_index];
+                    let draw_cmd_bufs = if selection_vertices.is_some() {
+                        vec![
                             graphics_draw_cmd_buf,
                             text_draw_cmd_buf,
                             crosshair_draw_cmd_buf,
-                        ],
-                    )?];
+                            self.new_selection_draw_cmd_buf(image_index)?,
+                        ]
+                    } else {
+                        vec![
+                            graphics_draw_cmd_buf,
+                            text_draw_cmd_buf,
+                            crosshair_draw_cmd_buf,
+                        ]
+                    };
+
+                    let command_buffers =
+                        [self.new_render_pass_command_buffer(image_index, &draw_cmd_bufs)?];
                     let submit_info = vk::SubmitInfo::builder()
                         .wait_semaphores(&wait_semaphores)
                         .wait_dst_stage_mask(&wait_dst_stage_mask)

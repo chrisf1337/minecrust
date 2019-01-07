@@ -43,11 +43,11 @@ pub enum PrimitiveGeometryComponent {
 }
 
 impl PrimitiveGeometryComponent {
-    pub fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f> {
+    pub fn vtx_data(&self, transform: &Transform3f) -> Vec<Vertex3f> {
         match self {
-            PrimitiveGeometryComponent::Rectangle(ref mut rect) => rect.vtx_data(transform),
-            PrimitiveGeometryComponent::Square(ref mut square) => square.vtx_data(transform),
-            PrimitiveGeometryComponent::UnitCube(ref mut cube) => cube.vtx_data(transform),
+            PrimitiveGeometryComponent::Rectangle(rect) => rect.vtx_data(transform),
+            PrimitiveGeometryComponent::Square(square) => square.vtx_data(transform),
+            PrimitiveGeometryComponent::UnitCube(cube) => cube.vtx_data(transform),
         }
     }
 
@@ -159,6 +159,7 @@ impl<'a> System<'a> for RenderSystem {
             ref mut camera_animation,
             ref mut fps_last_sampled_time,
             ref mut fps_sample,
+            ref selected,
         } = game_state;
 
         let elapsed_time = *elapsed_time;
@@ -209,6 +210,14 @@ impl<'a> System<'a> for RenderSystem {
             vertices.extend(geometry.vtx_data(&transform.transform));
         }
 
+        let selection_vertices = if let Some(selected) = selected {
+            let transform = transform_storage.get(*selected).unwrap();
+            let geometry = geometry.get(*selected).unwrap();
+            Some(geometry.vtx_data(&transform.transform))
+        } else {
+            None
+        };
+
         if elapsed_time >= *fps_last_sampled_time + FRAME_TIME_SAMPLE_INTERVAL {
             *fps_last_sampled_time = elapsed_time;
             *fps_sample = 1.0 / frame_time;
@@ -217,7 +226,15 @@ impl<'a> System<'a> for RenderSystem {
         let fps = *fps_sample;
 
         renderer
-            .draw_frame(&game_state, &RenderData { vertices, fps }, *resized)
+            .draw_frame(
+                &game_state,
+                &RenderData {
+                    vertices,
+                    fps,
+                    selection_vertices,
+                },
+                *resized,
+            )
             .expect("draw_frame()");
     }
 }

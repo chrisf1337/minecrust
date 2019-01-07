@@ -6,11 +6,11 @@ pub mod unitcube;
 
 use crate::{geometry::boundingbox::BoundingBox, types::prelude::*, vulkan::Vertex3f};
 
-pub trait PrimitiveGeometry {
+pub trait PrimitiveGeometry: Send + Sync {
     /// Vertices to be copied to a vertex buffer.
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f>;
+    fn vtx_data(&self, transform: &Transform3f) -> Vec<Vertex3f>;
 
-    fn vertices(&mut self, transform: &Transform3f) -> Vec<Point3f>;
+    fn vertices(&self, transform: &Transform3f) -> Vec<Point3f>;
 
     fn bounding_box(&self, transform: &Transform3f) -> BoundingBox;
 }

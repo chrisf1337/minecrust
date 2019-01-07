@@ -5,7 +5,7 @@ use crate::{
         TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{square::Square, unitcube::UnitCube},
+    geometry::{square::Square, unitcube::UnitCube, PrimitiveGeometry},
     na::Translation3,
     renderer::Renderer,
     types::prelude::*,
@@ -40,6 +40,7 @@ pub struct GameState {
     /// In frames per second
     pub fps_sample: f32,
     pub camera_animation: Option<CameraAnimation>,
+    pub selected: Option<Entity>,
 }
 
 pub struct Game<'a, 'b> {
@@ -70,6 +71,7 @@ impl<'a, 'b> Game<'a, 'b> {
             fps_last_sampled_time: 0.0,
             // camera_animation: Some(camera_animation),
             camera_animation: None,
+            selected: None,
         };
         let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
 
@@ -98,7 +100,7 @@ impl<'a, 'b> Game<'a, 'b> {
         };
 
         // square
-        world
+        let square = world
             .create_entity()
             .with(TransformComponent::new(
                 Translation3::from(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
@@ -106,13 +108,13 @@ impl<'a, 'b> Game<'a, 'b> {
             .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
             .build();
         // cube 1
-        world
+        let cube1 = world
             .create_entity()
             .with(TransformComponent::new(Transform3f::identity()))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
         // cube 2
-        let cube3 = world
+        let cube2 = world
             .create_entity()
             .with(TransformComponent::new(
                 Translation3::from(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
@@ -120,13 +122,18 @@ impl<'a, 'b> Game<'a, 'b> {
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
         // cube 3
-        world
+        let cube3 = world
             .create_entity()
             .with(TransformComponent::new(
                 Translation3::from(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
+
+        {
+            let mut state = world.write_resource::<GameState>();
+            state.selected = Some(cube1);
+        }
 
         Ok(Game {
             world,

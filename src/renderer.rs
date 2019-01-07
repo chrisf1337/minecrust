@@ -39,5 +39,6 @@ pub trait Renderer {
 
 pub struct RenderData {
     pub vertices: Vec<Vertex3f>,
+    pub selection_vertices: Option<Vec<Vertex3f>>,
     pub fps: f32,
 }

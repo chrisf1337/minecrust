@@ -52,7 +52,7 @@ impl UnitCube {
 }
 
 impl PrimitiveGeometry for UnitCube {
-    fn vtx_data(&mut self, transform: &Transform3f) -> Vec<Vertex3f> {
+    fn vtx_data(&self, transform: &Transform3f) -> Vec<Vertex3f> {
         let mut sq = Square::new(self.side_len);
         let mut vertices = vec![];
         for tr in &self.transforms {
@@ -61,7 +61,7 @@ impl PrimitiveGeometry for UnitCube {
         vertices
     }
 
-    fn vertices(&mut self, transform: &Transform3f) -> Vec<Point3f> {
+    fn vertices(&self, transform: &Transform3f) -> Vec<Point3f> {
         let mut sq = Square::new(self.side_len);
         let mut vertices = vec![];
         for tr in &self.transforms {
