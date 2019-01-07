@@ -5,7 +5,7 @@ use crate::{
         TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{square::Square, unitcube::UnitCube, PrimitiveGeometry},
+    geometry::{square::Square, unitcube::UnitCube},
     na::Translation3,
     renderer::Renderer,
     types::prelude::*,

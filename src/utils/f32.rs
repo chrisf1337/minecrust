@@ -1,12 +1,3 @@
-use std::f32;
-use std::f32::consts::PI;
-
-const FLOAT_COMPARISON_EPSILON: f32 = 1.0e-6;
-
-pub fn almost_eq(a: f32, b: f32) -> bool {
-    f32::abs(a - b) <= FLOAT_COMPARISON_EPSILON
-}
-
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a * (1.0 - t) + b * t
 }
@@ -21,16 +12,15 @@ pub fn clerp(a: f32, b: f32, t: f32) -> f32 {
     }
 }
 
-pub fn clamp(min: f32, max: f32, t: f32) -> f32 {
-    f32::min(f32::max(t, max), min)
+#[cfg(test)]
+mod test {
+
+    const FLOAT_COMPARISON_EPSILON: f32 = 1.0e-6;
+
+    pub fn almost_eq(a: f32, b: f32) -> bool {
+        f32::abs(a - b) <= FLOAT_COMPARISON_EPSILON
+    }
 }
 
-pub fn normalize_angle(mut a: f32) -> f32 {
-    while a >= 2.0 * PI {
-        a -= 2.0 * PI;
-    }
-    while a <= 0.0 {
-        a += 2.0 * PI;
-    }
-    a
-}
+#[cfg(test)]
+pub use self::test::*;

@@ -1,5 +1,4 @@
 use crate::{
-    camera::{Camera, CameraAnimation},
     game::GameState,
     geometry::{
         boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
@@ -7,15 +6,12 @@ use crate::{
     },
     renderer::{RenderData, Renderer},
     types::prelude::*,
-    utils::{f32, pt3f, quat4f, vec3f, NSEC_PER_SEC},
+    utils::f32,
     vulkan::Vertex3f,
 };
 use specs::prelude::*;
-use specs::Entity;
 use specs_derive::Component;
-use std::{
-    cell::RefCell, collections::HashSet, f32::consts::PI, ops::DerefMut, rc::Rc, time::Duration,
-};
+use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 use winit::VirtualKeyCode;
 
 const FRAME_TIME_SAMPLE_INTERVAL: f32 = 0.25;
