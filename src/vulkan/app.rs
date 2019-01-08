@@ -1395,6 +1395,8 @@ impl VulkanApp {
         self.core.device.cmd_end_render_pass(cmd_buf);
         self.core.device.end_command_buffer(cmd_buf)?;
 
+        self.render_pass_cmd_bufs[index] = Some(cmd_buf);
+
         Ok(cmd_buf)
     }
 
@@ -1594,7 +1596,7 @@ impl VulkanApp {
 
         self.core.device.end_command_buffer(cmd_buf)?;
 
-        self.transfer_cmd_bufs.push(Some(cmd_buf));
+        self.transfer_cmd_bufs[index] = Some(cmd_buf);
 
         Ok(cmd_buf)
     }
