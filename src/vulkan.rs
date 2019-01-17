@@ -6,6 +6,7 @@ mod one_time_command_buffer;
 mod text;
 mod texture;
 mod vertex;
+mod vertex_input;
 
 pub use self::{app::VulkanApp, vertex::Vertex3f};
 

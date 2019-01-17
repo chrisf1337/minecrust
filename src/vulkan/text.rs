@@ -1,4 +1,7 @@
-use crate::types::{prelude::*, Color};
+use crate::{
+    types::{prelude::*, Color},
+    vulkan::vertex_input::VertexInput,
+};
 use ash::vk;
 
 #[repr(C)]
@@ -19,8 +22,10 @@ impl TextVertex {
             color,
         }
     }
+}
 
-    pub fn binding_description() -> vk::VertexInputBindingDescription {
+impl VertexInput for TextVertex {
+    fn binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::builder()
             .binding(0)
             .stride(std::mem::size_of::<Self>() as u32)
@@ -28,8 +33,8 @@ impl TextVertex {
             .build()
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 4] {
-        [
+    fn attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
+        vec![
             vk::VertexInputAttributeDescription::builder()
                 .binding(0)
                 .location(0)

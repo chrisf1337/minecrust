@@ -9,14 +9,21 @@ struct BvhNode {
     children: Vec<BvhNode>,
     center: Point3f,
     bbox: BoundingBox,
+    contents: Vec<Entity>,
 }
 
 impl BvhNode {
-    fn new(children: Vec<BvhNode>, center: Point3f, bbox: BoundingBox) -> BvhNode {
+    fn new(
+        children: Vec<BvhNode>,
+        center: Point3f,
+        bbox: BoundingBox,
+        contents: Vec<Entity>,
+    ) -> BvhNode {
         BvhNode {
             children,
             center,
             bbox,
+            contents,
         }
     }
 
@@ -24,8 +31,10 @@ impl BvhNode {
         storage: &ReadStorage<PrimitiveGeometryComponent>,
         entities: &[Entity],
     ) -> BvhNode {
-        for entity in entities {
-            if let Some(PrimitiveGeometryComponent::UnitCube(cube)) = storage.get(*entity) {
+        assert!(!entities.is_empty(), "entities is empty");
+        for &entity in entities {
+            if let Some(PrimitiveGeometryComponent::UnitCube(cube)) = storage.get(entity) {
+
             } else {
                 unimplemented!("Can only add unit cube to BVH node");
             }
@@ -34,6 +43,7 @@ impl BvhNode {
             vec![],
             Point3f::origin(),
             BoundingBox::new(Point3f::origin(), Point3f::origin()),
+            vec![],
         )
     }
 }

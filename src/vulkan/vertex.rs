@@ -1,4 +1,4 @@
-use crate::types::prelude::*;
+use crate::{types::prelude::*, vulkan::vertex_input::VertexInput};
 use ash::vk;
 
 #[repr(C)]
@@ -12,8 +12,10 @@ impl Vertex2f {
     pub fn new(pos: Point2f, uv: Point2f) -> Vertex2f {
         Vertex2f { pos, uv }
     }
+}
 
-    pub fn binding_description() -> vk::VertexInputBindingDescription {
+impl VertexInput for Vertex2f {
+    fn binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::builder()
             .binding(0)
             .stride(std::mem::size_of::<Self>() as u32)
@@ -21,8 +23,8 @@ impl Vertex2f {
             .build()
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
-        [
+    fn attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
+        vec![
             vk::VertexInputAttributeDescription::builder()
                 .binding(0)
                 .location(0)
@@ -51,7 +53,13 @@ impl Vertex3f {
         Vertex3f { pos, uv }
     }
 
-    pub fn binding_description() -> vk::VertexInputBindingDescription {
+    pub fn transform(&self, transform: &Transform3f) -> Vertex3f {
+        Vertex3f::new(transform * self.pos, self.uv)
+    }
+}
+
+impl VertexInput for Vertex3f {
+    fn binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::builder()
             .binding(0)
             .stride(std::mem::size_of::<Self>() as u32)
@@ -59,8 +67,8 @@ impl Vertex3f {
             .build()
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
-        [
+    fn attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
+        vec![
             vk::VertexInputAttributeDescription::builder()
                 .binding(0)
                 .location(0)
@@ -74,9 +82,5 @@ impl Vertex3f {
                 .offset(offset_of!(Vertex3f, uv) as u32)
                 .build(),
         ]
-    }
-
-    pub fn transform(&self, transform: &Transform3f) -> Vertex3f {
-        Vertex3f::new(transform * self.pos, self.uv)
     }
 }
