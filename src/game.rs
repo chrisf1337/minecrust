@@ -20,7 +20,7 @@ use std::{
     collections::HashMap,
     ops::DerefMut,
     rc::Rc,
-    time::SystemTime,
+    time::Instant,
 };
 use winit::{dpi::LogicalSize, Event, VirtualKeyCode, WindowEvent};
 
@@ -149,15 +149,15 @@ impl<'a, 'b> Game<'a, 'b> {
         let mut should_grab_cursor = true;
         let mut old_cursor_grabbed = should_grab_cursor;
         let mut already_changed_cursor_state = false;
-        let mut last_frame_time = SystemTime::now();
-        let start_time = SystemTime::now();
+        let start_time = Instant::now();
+        let mut last_frame_time = start_time;
 
         self.toggle_cursor_grab(&self.renderer.borrow_mut(), true)?;
 
         while running {
             let mut resized = false;
-            let current_frame_time = SystemTime::now();
-            let frame_time = current_frame_time.duration_since(last_frame_time)?;
+            let current_frame_time = Instant::now();
+            let frame_time = current_frame_time.duration_since(last_frame_time);
             last_frame_time = current_frame_time;
             let mut mouse_delta = (0.0, 0.0);
             let mut new_cursor_grabbed = old_cursor_grabbed;
@@ -225,7 +225,7 @@ impl<'a, 'b> Game<'a, 'b> {
                     state.mouse_delta = (0.0, 0.0);
                 }
 
-                state.elapsed_time = start_time.elapsed()?.as_nanos() as f32 / NSEC_PER_SEC as f32;
+                state.elapsed_time = start_time.elapsed().as_nanos() as f32 / NSEC_PER_SEC as f32;
                 state.frame_time = frame_time.as_nanos() as f32 / NSEC_PER_SEC as f32;
                 state.resized = resized;
             }
