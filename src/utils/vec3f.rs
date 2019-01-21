@@ -18,3 +18,17 @@ pub fn yaw_pitch_diff(v1: &Vector3f, v2: &Vector3f) -> (f32, f32) {
     }
     (dy, dp)
 }
+
+pub trait Vector3fExt {
+    fn from_vec4f(v: Vector4f) -> Vector3f {
+        Vector3f::new(v.x, v.y, v.z)
+    }
+
+    fn almost_eq(&self, v: &Vector3f) -> bool;
+}
+
+impl Vector3fExt for Vector3f {
+    fn almost_eq(&self, v: &Vector3f) -> bool {
+        f32::almost_eq(self.x, v.x) && f32::almost_eq(self.y, v.y) && f32::almost_eq(self.z, v.z)
+    }
+}

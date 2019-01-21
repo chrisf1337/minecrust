@@ -4,7 +4,9 @@ pub mod rectangle;
 pub mod square;
 pub mod unitcube;
 
-use crate::{geometry::boundingbox::BoundingBox, types::prelude::*, vulkan::Vertex3f};
+pub use self::{boundingbox::BoundingBox, unitcube::UnitCube};
+
+use crate::{types::prelude::*, vulkan::Vertex3f};
 
 pub trait PrimitiveGeometry: Send + Sync {
     /// Vertices to be copied to a vertex buffer.

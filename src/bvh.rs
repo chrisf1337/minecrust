@@ -1,63 +1,227 @@
-use crate::ecs::PrimitiveGeometryComponent;
-use crate::geometry::boundingbox::BoundingBox;
-use crate::types::prelude::*;
-use specs::{Component, Entity, ReadStorage};
+use crate::{
+    ecs::{entity::Entity, BoundingBoxComponent, PrimitiveGeometryComponent, TransformComponent},
+    geometry::{ray::Ray, BoundingBox},
+    types::prelude::*,
+};
+use num_traits::identities::Zero;
+use specs::ReadStorage;
 
 const CHILD_NODE_MAX_SIZE: usize = 8;
 
+#[derive(Debug, Clone)]
 struct BvhNode {
-    children: Vec<BvhNode>,
-    center: Point3f,
     bbox: BoundingBox,
-    contents: Vec<Entity>,
+    ty: BvhNodeType,
+}
+
+#[derive(Debug, Clone)]
+enum BvhNodeType {
+    Leaf(Vec<Entity>),
+    Internal(BvhOctPartition),
 }
 
 impl BvhNode {
-    fn new(
-        children: Vec<BvhNode>,
-        center: Point3f,
-        bbox: BoundingBox,
-        contents: Vec<Entity>,
-    ) -> BvhNode {
-        BvhNode {
-            children,
-            center,
-            bbox,
-            contents,
+    fn new(bbox: BoundingBox, ty: BvhNodeType) -> BvhNode {
+        BvhNode { bbox, ty }
+    }
+
+    fn _new_from_cubes(
+        transform_storage: &ReadStorage<TransformComponent>,
+        bbox_storage: &ReadStorage<BoundingBoxComponent>,
+        entities: &[Entity],
+        child_node_max_size: usize,
+    ) -> Option<BvhNode> {
+        if entities.is_empty() {
+            return None;
+        }
+        let centers: Vec<Point3f> = entities
+            .iter()
+            .map(|ety| {
+                if let Some(TransformComponent(transform)) = transform_storage.get(ety.entity) {
+                    transform.translation()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect();
+        let origin_x = median(&mut centers.iter().map(|&p| p.x).collect::<Vec<f32>>());
+        let origin_y = median(&mut centers.iter().map(|&p| p.y).collect::<Vec<f32>>());
+        let origin_z = median(&mut centers.iter().map(|&p| p.z).collect::<Vec<f32>>());
+        let origin = Point3f::new(origin_x, origin_y, origin_z);
+
+        let bboxes: Vec<BoundingBox> = entities
+            .iter()
+            .map(|ety| *ety.bounding_box(bbox_storage))
+            .collect();
+
+        if entities.len() > child_node_max_size {
+            let partition = partition_pts(transform_storage, entities, &origin);
+            let tfr = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.tfr,
+                child_node_max_size,
+            ));
+            let tfl = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.tfl,
+                child_node_max_size,
+            ));
+            let tbr = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.tbr,
+                child_node_max_size,
+            ));
+            let tbl = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.tbl,
+                child_node_max_size,
+            ));
+            let bfr = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.bfr,
+                child_node_max_size,
+            ));
+            let bfl = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.bfl,
+                child_node_max_size,
+            ));
+            let bbr = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.bbr,
+                child_node_max_size,
+            ));
+            let bbl = Box::new(BvhNode::_new_from_cubes(
+                transform_storage,
+                bbox_storage,
+                &partition.bbl,
+                child_node_max_size,
+            ));
+            Some(BvhNode::new(
+                BoundingBox::merge_bboxes(&bboxes),
+                BvhNodeType::Internal(BvhOctPartition {
+                    tfr,
+                    tfl,
+                    tbr,
+                    tbl,
+                    bfr,
+                    bfl,
+                    bbr,
+                    bbl,
+                }),
+            ))
+        } else {
+            Some(BvhNode::new(
+                BoundingBox::merge_bboxes(&bboxes),
+                BvhNodeType::Leaf(entities.to_vec()),
+            ))
         }
     }
 
-    fn new_from_cubes(
-        storage: &ReadStorage<PrimitiveGeometryComponent>,
+    pub fn new_from_cubes(
+        transform_storage: &ReadStorage<TransformComponent>,
+        bbox_storage: &ReadStorage<BoundingBoxComponent>,
         entities: &[Entity],
-    ) -> BvhNode {
-        assert!(!entities.is_empty(), "entities is empty");
-        for &entity in entities {
-            if let Some(PrimitiveGeometryComponent::UnitCube(cube)) = storage.get(entity) {
-
-            } else {
-                unimplemented!("Can only add unit cube to BVH node");
-            }
-        }
-        BvhNode::new(
-            vec![],
-            Point3f::origin(),
-            BoundingBox::new(Point3f::origin(), Point3f::origin()),
-            vec![],
+    ) -> Option<BvhNode> {
+        BvhNode::_new_from_cubes(
+            transform_storage,
+            bbox_storage,
+            entities,
+            CHILD_NODE_MAX_SIZE,
         )
     }
+
+    pub fn intersected_cube(
+        &self,
+        ray: &Ray,
+        storage: &ReadStorage<BoundingBoxComponent>,
+    ) -> Option<Entity> {
+        if ray.intersect_bbox(&self.bbox).is_none() {
+            return None;
+        }
+        match &self.ty {
+            BvhNodeType::Leaf(entities) => ray
+                .intersect_entities(entities, storage)
+                .map(|(i, _)| entities[i]),
+            BvhNodeType::Internal(oct_partition) => {
+                let mut entities = vec![];
+                if let Some(bvh_node) = oct_partition.tfr.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.tfl.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.tbr.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.tbl.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.bfr.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.bfl.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.bbr.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+                if let Some(bvh_node) = oct_partition.bbl.as_ref() {
+                    if let Some(ety) = bvh_node.intersected_cube(ray, storage) {
+                        entities.push(ety);
+                    }
+                }
+
+                ray.intersect_entities(&entities, storage)
+                    .map(|(i, p)| entities[i])
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BvhOctPartition {
+    tfr: Box<Option<BvhNode>>,
+    tfl: Box<Option<BvhNode>>,
+    tbr: Box<Option<BvhNode>>,
+    tbl: Box<Option<BvhNode>>,
+    bfr: Box<Option<BvhNode>>,
+    bfl: Box<Option<BvhNode>>,
+    bbr: Box<Option<BvhNode>>,
+    bbl: Box<Option<BvhNode>>,
 }
 
 #[derive(Default, Debug)]
 struct OctPartition {
-    tfr: Vec<Point3f>,
-    tfl: Vec<Point3f>,
-    tbr: Vec<Point3f>,
-    tbl: Vec<Point3f>,
-    bfr: Vec<Point3f>,
-    bfl: Vec<Point3f>,
-    bbr: Vec<Point3f>,
-    bbl: Vec<Point3f>,
+    tfr: Vec<Entity>,
+    tfl: Vec<Entity>,
+    tbr: Vec<Entity>,
+    tbl: Vec<Entity>,
+    bfr: Vec<Entity>,
+    bfl: Vec<Entity>,
+    bbr: Vec<Entity>,
+    bbl: Vec<Entity>,
 }
 
 impl PartialEq for OctPartition {
@@ -73,6 +237,8 @@ impl PartialEq for OctPartition {
     }
 }
 
+impl Eq for OctPartition {}
+
 fn median<T: PartialOrd + Clone>(v: &mut [T]) -> T {
     if v.is_empty() {
         panic!("Cannot take median of empty slice");
@@ -82,32 +248,36 @@ fn median<T: PartialOrd + Clone>(v: &mut [T]) -> T {
     v[len / 2].clone()
 }
 
-fn partition_pts(pts: &[Point3f], origin: &Point3f) -> OctPartition {
+fn partition_pts(
+    storage: &ReadStorage<TransformComponent>,
+    entities: &[Entity],
+    origin: &Point3f,
+) -> OctPartition {
     let mut partition = OctPartition::default();
-    for pt in pts {
-        let v = pt - origin;
+    for entity in entities {
+        let v = entity.position(storage) - origin;
         if v.x >= 0.0 {
             if v.y >= 0.0 {
                 if v.z >= 0.0 {
-                    partition.tfr.push(pt.clone());
+                    partition.tfr.push(entity.clone());
                 } else {
-                    partition.tbr.push(pt.clone());
+                    partition.tbr.push(entity.clone());
                 }
             } else if v.z >= 0.0 {
-                partition.bfr.push(pt.clone());
+                partition.bfr.push(entity.clone());
             } else {
-                partition.bbr.push(pt.clone());
+                partition.bbr.push(entity.clone());
             }
         } else if v.y >= 0.0 {
             if v.z >= 0.0 {
-                partition.tfl.push(pt.clone());
+                partition.tfl.push(entity.clone());
             } else {
-                partition.tbl.push(pt.clone());
+                partition.tbl.push(entity.clone());
             }
         } else if v.z >= 0.0 {
-            partition.bfl.push(pt.clone());
+            partition.bfl.push(entity.clone());
         } else {
-            partition.bbl.push(pt.clone());
+            partition.bbl.push(entity.clone());
         }
     }
     partition
@@ -116,31 +286,224 @@ fn partition_pts(pts: &[Point3f], origin: &Point3f) -> OctPartition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::pt3f::Point3fExt;
+    use alga::general::SubsetOf;
+    use specs::World;
 
     #[test]
     fn test_partition_pts() {
-        let pts = vec![
-            Point3f::new(1.0, 1.0, 1.0),
-            Point3f::new(1.0, 1.0, -1.0),
-            Point3f::new(1.0, -1.0, 1.0),
-            Point3f::new(1.0, -1.0, -1.0),
-            Point3f::new(-1.0, 1.0, 1.0),
-            Point3f::new(-1.0, 1.0, -1.0),
-            Point3f::new(-1.0, -1.0, 1.0),
-            Point3f::new(-1.0, -1.0, -1.0),
+        let mut world = World::new();
+        world.register::<TransformComponent>();
+
+        let entities = vec![
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, 1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, -1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, 1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, -1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, 1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, -1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, 1.0)),
+            ),
+            Entity::new_with_transform_w(
+                &world,
+                Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, -1.0)),
+            ),
         ];
+
+        let partition = partition_pts(&world.read_storage(), &entities, &Point3f::origin());
+        let storage = world.read_storage();
         assert_eq!(
-            partition_pts(&pts, &Point3f::origin()),
-            OctPartition {
-                tfr: vec![Point3f::new(1.0, 1.0, 1.0),],
-                tfl: vec![Point3f::new(-1.0, 1.0, 1.0)],
-                tbr: vec![Point3f::new(1.0, 1.0, -1.0)],
-                tbl: vec![Point3f::new(-1.0, 1.0, -1.0)],
-                bfr: vec![Point3f::new(1.0, -1.0, 1.0)],
-                bfl: vec![Point3f::new(-1.0, -1.0, 1.0)],
-                bbr: vec![Point3f::new(1.0, -1.0, -1.0)],
-                bbl: vec![Point3f::new(-1.0, -1.0, -1.0)],
-            }
+            *partition.tfr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, 1.0))
         );
+        assert_eq!(
+            *partition.tfl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.tbr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, -1.0))
+        );
+        assert_eq!(
+            *partition.tbl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, -1.0))
+        );
+        assert_eq!(
+            *partition.bfr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.bfl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.bbr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, -1.0))
+        );
+        assert_eq!(
+            *partition.bbl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, -1.0))
+        );
+    }
+
+    #[test]
+    fn test_intersect1() {
+        let mut world = World::new();
+        world.register::<TransformComponent>();
+        world.register::<PrimitiveGeometryComponent>();
+        world.register::<BoundingBoxComponent>();
+
+        let mut entities = vec![];
+        for x in -2..=2 {
+            for y in -2..=2 {
+                for z in -2..=2 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+            }
+        }
+
+        let bvh =
+            BvhNode::_new_from_cubes(&world.read_storage(), &world.read_storage(), &entities, 2)
+                .unwrap();
+        let entity = bvh.intersected_cube(
+            &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
+            &world.read_storage(),
+        );
+        assert!(entity
+            .unwrap()
+            .position(&world.read_storage())
+            .almost_eq(&Point3f::new(1.0, 0.0, 2.0)));
+    }
+
+    #[test]
+    fn test_intersect2() {
+        let mut world = World::new();
+        world.register::<TransformComponent>();
+        world.register::<PrimitiveGeometryComponent>();
+        world.register::<BoundingBoxComponent>();
+
+        let mut entities = vec![];
+        for x in -4..=-2 {
+            for y in -4..=-2 {
+                for z in -4..=-2 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+                for z in 2..=4 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+            }
+            for y in 2..=4 {
+                for z in -4..=-2 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+                for z in 2..=4 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+            }
+        }
+        for x in 2..=4 {
+            for y in -4..=-2 {
+                for z in -4..=-2 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+                for z in 2..=4 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+            }
+            for y in 2..=4 {
+                for z in -4..=-2 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+                for z in 2..=4 {
+                    entities.push(Entity::new_unitcube_w(
+                        &world,
+                        Translation3::from(Vector3f::new(x as f32, y as f32, z as f32))
+                            .to_superset(),
+                    ));
+                }
+            }
+        }
+
+        let bvh =
+            BvhNode::_new_from_cubes(&world.read_storage(), &world.read_storage(), &entities, 8)
+                .unwrap();
+        let entity = bvh.intersected_cube(
+            &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
+            &world.read_storage(),
+        );
+        assert_eq!(entity, None);
+
+        let entity = bvh.intersected_cube(
+            &Ray::new(Point3f::origin(), Vector3f::new(1.0, 1.0, 1.0)),
+            &world.read_storage(),
+        );
+        assert!(entity
+            .unwrap()
+            .position(&world.read_storage())
+            .almost_eq(&Point3f::new(2.0, 2.0, 2.0)));
+
+        let entity = bvh.intersected_cube(
+            &Ray::new(
+                Point3f::new(10.0, 10.0, 10.0),
+                Vector3f::new(-1.0, -1.0, -1.0),
+            ),
+            &world.read_storage(),
+        );
+        assert!(entity
+            .unwrap()
+            .position(&world.read_storage())
+            .almost_eq(&Point3f::new(4.0, 4.0, 4.0)));
     }
 }

@@ -1,3 +1,5 @@
+pub mod entity;
+
 use crate::{
     game::GameState,
     geometry::{
@@ -16,22 +18,14 @@ use winit::VirtualKeyCode;
 
 const FRAME_TIME_SAMPLE_INTERVAL: f32 = 0.25;
 
-#[derive(Debug)]
-pub struct TransformComponent {
-    pub transform: Transform3f,
-}
+#[derive(Debug, Copy, Clone)]
+pub struct TransformComponent(pub Transform3f);
 
 impl Component for TransformComponent {
     type Storage = FlaggedStorage<Self>;
 }
 
-impl TransformComponent {
-    pub fn new(transform: Transform3f) -> TransformComponent {
-        TransformComponent { transform }
-    }
-}
-
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 pub enum PrimitiveGeometryComponent {
     Rectangle(Rectangle),
     Square(Square),
@@ -57,18 +51,11 @@ impl PrimitiveGeometryComponent {
     }
 }
 
-pub struct BoundingBoxComponent {
-    pub bbox: BoundingBox,
-}
+#[derive(Debug, Clone, Copy)]
+pub struct BoundingBoxComponent(pub BoundingBox);
 
 impl Component for BoundingBoxComponent {
     type Storage = FlaggedStorage<Self>;
-}
-
-impl BoundingBoxComponent {
-    pub fn new(bbox: BoundingBox) -> BoundingBoxComponent {
-        BoundingBoxComponent { bbox }
-    }
 }
 
 pub struct BoundingBoxComponentSystem {
@@ -119,9 +106,9 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
         for (entity, primitive, transform, _) in
             (&entities, &primitives, &transforms, &self.inserted).join()
         {
-            let bbox = primitive.geometry().bounding_box(&transform.transform);
+            let bbox = primitive.geometry().bounding_box(&transform.0);
             bounding_boxes
-                .insert(entity, BoundingBoxComponent::new(bbox))
+                .insert(entity, BoundingBoxComponent(bbox))
                 .unwrap_or_else(|err| panic!("{:?}", err));
         }
     }
@@ -203,13 +190,13 @@ impl<'a> System<'a> for RenderSystem {
 
         let mut vertices = vec![];
         for (transform, geometry) in (&transform_storage, &mut geometry).join() {
-            vertices.extend(geometry.vtx_data(&transform.transform));
+            vertices.extend(geometry.vtx_data(&transform.0));
         }
 
         let selection_vertices = if let Some(selected) = selected {
             let transform = transform_storage.get(*selected).unwrap();
             let geometry = geometry.get(*selected).unwrap();
-            Some(geometry.vtx_data(&transform.transform))
+            Some(geometry.vtx_data(&transform.0))
         } else {
             None
         };

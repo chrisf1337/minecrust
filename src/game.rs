@@ -102,7 +102,7 @@ impl<'a, 'b> Game<'a, 'b> {
         // square
         let square = world
             .create_entity()
-            .with(TransformComponent::new(
+            .with(TransformComponent(
                 Translation3::from(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
@@ -110,13 +110,13 @@ impl<'a, 'b> Game<'a, 'b> {
         // cube 1
         let cube1 = world
             .create_entity()
-            .with(TransformComponent::new(Transform3f::identity()))
+            .with(TransformComponent(Transform3f::identity()))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
         // cube 2
         let cube2 = world
             .create_entity()
-            .with(TransformComponent::new(
+            .with(TransformComponent(
                 Translation3::from(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
@@ -124,7 +124,7 @@ impl<'a, 'b> Game<'a, 'b> {
         // cube 3
         let cube3 = world
             .create_entity()
-            .with(TransformComponent::new(
+            .with(TransformComponent(
                 Translation3::from(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
@@ -161,6 +161,7 @@ impl<'a, 'b> Game<'a, 'b> {
             last_frame_time = current_frame_time;
             let mut mouse_delta = (0.0, 0.0);
             let mut new_cursor_grabbed = old_cursor_grabbed;
+
             {
                 let mut state = self.world.write_resource::<GameState>();
                 let state = state.deref_mut();
@@ -229,6 +230,7 @@ impl<'a, 'b> Game<'a, 'b> {
                 state.frame_time = frame_time.as_nanos() as f32 / NSEC_PER_SEC as f32;
                 state.resized = resized;
             }
+
             self.dispatcher.dispatch(&self.world.res);
             self.world.maintain();
         }

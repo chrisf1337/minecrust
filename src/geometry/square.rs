@@ -36,7 +36,7 @@ mod tests {
     use super::*;
     use crate::na::geometry::Isometry;
     use crate::na::{Rotation3, Translation3};
-    use crate::utils;
+    use crate::utils::pt3f::Point3fExt;
     use alga::general::SubsetOf;
 
     #[test]
@@ -44,22 +44,10 @@ mod tests {
         let s = Square::new(1.0);
         let t = Translation3::from(Vector3f::new(0.0, 2.0, 0.0));
         let vertices = s.vertices(&t.to_superset());
-        assert!(utils::pt3f::almost_eq(
-            &vertices[0],
-            &Point3f::new(-0.5, 2.0, -0.5)
-        ));
-        assert!(utils::pt3f::almost_eq(
-            &vertices[1],
-            &Point3f::new(-0.5, 2.0, 0.5)
-        ));
-        assert!(utils::pt3f::almost_eq(
-            &vertices[2],
-            &Point3f::new(0.5, 2.0, 0.5)
-        ));
-        assert!(utils::pt3f::almost_eq(
-            &vertices[3],
-            &Point3f::new(0.5, 2.0, -0.5)
-        ));
+        assert!(vertices[0].almost_eq(&Point3f::new(-0.5, 2.0, -0.5)));
+        assert!(vertices[1].almost_eq(&Point3f::new(-0.5, 2.0, 0.5)));
+        assert!(vertices[2].almost_eq(&Point3f::new(0.5, 2.0, 0.5)));
+        assert!(vertices[3].almost_eq(&Point3f::new(0.5, 2.0, -0.5)));
     }
 
     #[test]
@@ -70,21 +58,9 @@ mod tests {
             Rotation3::from_axis_angle(&Vector3f::x_axis(), ::std::f32::consts::FRAC_PI_2),
         );
         let vertices = s.vertices(&t.to_superset());
-        assert!(utils::pt3f::almost_eq(
-            &vertices[0],
-            &Point3f::new(-0.5, 0.5, 0.5)
-        ));
-        assert!(utils::pt3f::almost_eq(
-            &vertices[1],
-            &Point3f::new(-0.5, -0.5, 0.5)
-        ));
-        assert!(utils::pt3f::almost_eq(
-            &vertices[2],
-            &Point3f::new(0.5, -0.5, 0.5)
-        ));
-        assert!(utils::pt3f::almost_eq(
-            &vertices[3],
-            &Point3f::new(0.5, 0.5, 0.5)
-        ));
+        assert!(vertices[0].almost_eq(&Point3f::new(-0.5, 0.5, 0.5)));
+        assert!(vertices[1].almost_eq(&Point3f::new(-0.5, -0.5, 0.5)));
+        assert!(vertices[2].almost_eq(&Point3f::new(0.5, -0.5, 0.5)));
+        assert!(vertices[3].almost_eq(&Point3f::new(0.5, 0.5, 0.5)));
     }
 }

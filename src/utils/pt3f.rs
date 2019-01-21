@@ -24,14 +24,12 @@ pub fn clerp(a: &Point3f, b: &Point3f, t: f32) -> Point3f {
     )
 }
 
-#[cfg(test)]
-mod test {
-    use crate::{types::prelude::*, utils::f32};
-
-    pub fn almost_eq(p1: &Point3f, p2: &Point3f) -> bool {
-        f32::almost_eq(p1.x, p2.x) && f32::almost_eq(p1.y, p2.y) && f32::almost_eq(p1.z, p2.z)
-    }
+pub trait Point3fExt {
+    fn almost_eq(&self, p: &Point3f) -> bool;
 }
 
-#[cfg(test)]
-pub use self::test::*;
+impl Point3fExt for Point3f {
+    fn almost_eq(&self, p: &Point3f) -> bool {
+        f32::almost_eq(self.x, p.x) && f32::almost_eq(self.y, p.y) && f32::almost_eq(self.z, p.z)
+    }
+}
