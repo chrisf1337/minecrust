@@ -3,8 +3,8 @@ pub mod entity;
 use crate::{
     game::GameState,
     geometry::{
-        boundingbox::BoundingBox, rectangle::Rectangle, square::Square, unitcube::UnitCube,
-        PrimitiveGeometry,
+        boundingbox::BoundingBox, ray::Ray, rectangle::Rectangle, square::Square,
+        unitcube::UnitCube, PrimitiveGeometry,
     },
     renderer::{RenderData, Renderer},
     types::prelude::*,
@@ -86,11 +86,14 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
         WriteStorage<'a, BoundingBoxComponent>,
     );
 
-    fn run(&mut self, (entities, primitives, transforms, mut bounding_boxes): Self::SystemData) {
+    fn run(
+        &mut self,
+        (entities, geom_storage, transform_storage, mut bbox_storage): Self::SystemData,
+    ) {
         self.inserted.clear();
         self.modified.clear();
 
-        let events = transforms.channel().read(&mut self.reader_id);
+        let events = transform_storage.channel().read(&mut self.reader_id);
         for event in events {
             match event {
                 ComponentEvent::Inserted(id) => {
@@ -103,20 +106,57 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
             }
         }
 
-        for (entity, primitive, transform, _) in
-            (&entities, &primitives, &transforms, &self.inserted).join()
+        for (entity, geom, transform, _) in
+            (&entities, &geom_storage, &transform_storage, &self.inserted).join()
         {
-            let bbox = primitive.geometry().bounding_box(&transform.0);
-            bounding_boxes
+            let bbox = geom.geometry().bounding_box(&transform.0);
+            bbox_storage
                 .insert(entity, BoundingBoxComponent(bbox))
                 .unwrap_or_else(|err| panic!("{:?}", err));
+        }
+
+        for (entity, geom, transform, _) in
+            (&entities, &geom_storage, &transform_storage, &self.inserted).join()
+        {
+            let bbox = geom.geometry().bounding_box(&transform.0);
+            *bbox_storage.get_mut(entity).unwrap() = BoundingBoxComponent(bbox);
         }
     }
 }
 
-#[derive(Component, Default)]
-#[storage(NullStorage)]
-pub struct SelectedComponent;
+pub struct SelectionSystem;
+
+impl<'a> System<'a> for SelectionSystem {
+    type SystemData = (
+        Entities<'a>,
+        ReadStorage<'a, BoundingBoxComponent>,
+        WriteExpect<'a, GameState>,
+    );
+
+    fn run(&mut self, (entities, bbox_storage, mut game_state): Self::SystemData) {
+        let game_state = game_state.deref_mut();
+        let GameState {
+            ref camera,
+            ref mut selected,
+            ..
+        } = game_state;
+
+        let ray = Ray::new(camera.pos, camera.direction().unwrap());
+        let mut new_selected: Option<(f32, Entity)> = None;
+        for (entity, bbox) in (&entities, &bbox_storage).join() {
+            if let Some((t, _)) = ray.intersect_bbox_t(&bbox.0) {
+                if let Some((intersect_t, _)) = new_selected {
+                    if t < intersect_t {
+                        new_selected = Some((t, entity));
+                    }
+                } else {
+                    new_selected = Some((t, entity));
+                }
+            }
+        }
+        *selected = new_selected.map(|(_, entity)| entity);
+    }
+}
 
 pub struct RenderSystem {
     pub renderer: Rc<RefCell<Renderer>>,

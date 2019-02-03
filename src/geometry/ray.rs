@@ -21,7 +21,7 @@ impl Ray {
         self.origin + t * self.direction
     }
 
-    fn intersect_bbox_t(&self, bbox: &BoundingBox) -> Option<(f32, Point3f)> {
+    pub fn intersect_bbox_t(&self, bbox: &BoundingBox) -> Option<(f32, Point3f)> {
         let min = bbox.min;
         let max = bbox.max;
 
@@ -129,11 +129,19 @@ mod tests {
     }
 
     #[test]
-    fn test_no_intersect() {
+    fn test_no_intersect1() {
         let r = Ray::new(Point3f::new(2.0, 0.0, 0.0), Vector3f::x());
         let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_bbox(&bbox);
         assert!(intersection.is_none());
+    }
+
+    #[test]
+    fn test_no_intersect2() {
+        let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let dir = Vector3f::new(0.99, 0.0, 1.0);
+        let r = Ray::new(Point3f::new(0.0, 0.0, 2.0), dir);
+        assert_eq!(r.intersect_bbox(&bbox), None);
     }
 
     #[test]

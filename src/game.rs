@@ -2,7 +2,7 @@ use crate::{
     camera::{Camera, CameraAnimation},
     ecs::{
         BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
-        TransformComponent,
+        SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
     geometry::{square::Square, unitcube::UnitCube},
@@ -92,6 +92,11 @@ impl<'a, 'b> Game<'a, 'b> {
                     ),
                     "BoundingBoxComponentSystem",
                     &[],
+                )
+                .with(
+                    SelectionSystem,
+                    "SelectionSystem",
+                    &["BoundingBoxComponentSystem"],
                 )
                 .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),

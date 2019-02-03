@@ -71,8 +71,18 @@ impl PrimitiveGeometry for UnitCube {
     }
 
     fn bounding_box(&self, transform: &Transform3f) -> BoundingBox {
-        let min = transform * Point3f::new(-self.side_len, -self.side_len, -self.side_len);
-        let max = transform * Point3f::new(self.side_len, self.side_len, self.side_len);
+        let min = transform
+            * Point3f::new(
+                -self.side_len / 2.0,
+                -self.side_len / 2.0,
+                -self.side_len / 2.0,
+            );
+        let max = transform
+            * Point3f::new(
+                self.side_len / 2.0,
+                self.side_len / 2.0,
+                self.side_len / 2.0,
+            );
         BoundingBox::new(min, max)
     }
 }

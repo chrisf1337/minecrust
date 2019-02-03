@@ -26,9 +26,9 @@ impl BvhNode {
     }
 
     fn _new_from_cubes(
+        entities: &[Entity],
         transform_storage: &ReadStorage<TransformComponent>,
         bbox_storage: &ReadStorage<BoundingBoxComponent>,
-        entities: &[Entity],
         child_node_max_size: usize,
     ) -> Option<BvhNode> {
         if entities.is_empty() {
@@ -57,51 +57,51 @@ impl BvhNode {
         if entities.len() > child_node_max_size {
             let partition = partition_pts(transform_storage, entities, &origin);
             let tfr = Box::new(BvhNode::_new_from_cubes(
+                &partition.tfr,
                 transform_storage,
                 bbox_storage,
-                &partition.tfr,
                 child_node_max_size,
             ));
             let tfl = Box::new(BvhNode::_new_from_cubes(
+                &partition.tfl,
                 transform_storage,
                 bbox_storage,
-                &partition.tfl,
                 child_node_max_size,
             ));
             let tbr = Box::new(BvhNode::_new_from_cubes(
+                &partition.tbr,
                 transform_storage,
                 bbox_storage,
-                &partition.tbr,
                 child_node_max_size,
             ));
             let tbl = Box::new(BvhNode::_new_from_cubes(
+                &partition.tbl,
                 transform_storage,
                 bbox_storage,
-                &partition.tbl,
                 child_node_max_size,
             ));
             let bfr = Box::new(BvhNode::_new_from_cubes(
+                &partition.bfr,
                 transform_storage,
                 bbox_storage,
-                &partition.bfr,
                 child_node_max_size,
             ));
             let bfl = Box::new(BvhNode::_new_from_cubes(
+                &partition.bfl,
                 transform_storage,
                 bbox_storage,
-                &partition.bfl,
                 child_node_max_size,
             ));
             let bbr = Box::new(BvhNode::_new_from_cubes(
+                &partition.bbr,
                 transform_storage,
                 bbox_storage,
-                &partition.bbr,
                 child_node_max_size,
             ));
             let bbl = Box::new(BvhNode::_new_from_cubes(
+                &partition.bbl,
                 transform_storage,
                 bbox_storage,
-                &partition.bbl,
                 child_node_max_size,
             ));
             Some(BvhNode::new(
@@ -126,14 +126,14 @@ impl BvhNode {
     }
 
     pub fn new_from_cubes(
+        entities: &[Entity],
         transform_storage: &ReadStorage<TransformComponent>,
         bbox_storage: &ReadStorage<BoundingBoxComponent>,
-        entities: &[Entity],
     ) -> Option<BvhNode> {
         BvhNode::_new_from_cubes(
+            entities,
             transform_storage,
             bbox_storage,
-            entities,
             CHILD_NODE_MAX_SIZE,
         )
     }
@@ -197,6 +197,15 @@ impl BvhNode {
                     .map(|(i, p)| entities[i])
             }
         }
+    }
+
+    pub fn add(
+        &mut self,
+        entity: Entity,
+        transform_storage: &ReadStorage<TransformComponent>,
+        bbox_storage: &ReadStorage<BoundingBoxComponent>,
+    ) {
+
     }
 }
 
@@ -387,7 +396,7 @@ mod tests {
         }
 
         let bvh =
-            BvhNode::_new_from_cubes(&world.read_storage(), &world.read_storage(), &entities, 2)
+            BvhNode::_new_from_cubes(&entities, &world.read_storage(), &world.read_storage(), 2)
                 .unwrap();
         let entity = bvh.intersected_cube(
             &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
@@ -477,7 +486,7 @@ mod tests {
         }
 
         let bvh =
-            BvhNode::_new_from_cubes(&world.read_storage(), &world.read_storage(), &entities, 8)
+            BvhNode::_new_from_cubes(&entities, &world.read_storage(), &world.read_storage(), 8)
                 .unwrap();
         let entity = bvh.intersected_cube(
             &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
