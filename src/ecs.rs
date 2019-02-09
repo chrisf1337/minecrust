@@ -3,8 +3,8 @@ pub mod entity;
 use crate::{
     game::GameState,
     geometry::{
-        boundingbox::BoundingBox, ray::Ray, rectangle::Rectangle, square::Square,
-        unitcube::UnitCube, PrimitiveGeometry,
+        aabb::AABB, ray::Ray, rectangle::Rectangle, square::Square, unitcube::UnitCube,
+        PrimitiveGeometry,
     },
     renderer::{RenderData, Renderer},
     types::prelude::*,
@@ -52,25 +52,25 @@ impl PrimitiveGeometryComponent {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BoundingBoxComponent(pub BoundingBox);
+pub struct AABBComponent(pub AABB);
 
-impl Component for BoundingBoxComponent {
+impl Component for AABBComponent {
     type Storage = FlaggedStorage<Self>;
 }
 
-pub struct BoundingBoxComponentSystem {
+pub struct AABBComponentSystem {
     reader_id: ReaderId<ComponentEvent>,
     inserted: BitSet,
     modified: BitSet,
 }
 
-impl BoundingBoxComponentSystem {
+impl AABBComponentSystem {
     pub fn new(
         reader_id: ReaderId<ComponentEvent>,
         inserted: BitSet,
         modified: BitSet,
-    ) -> BoundingBoxComponentSystem {
-        BoundingBoxComponentSystem {
+    ) -> AABBComponentSystem {
+        AABBComponentSystem {
             reader_id,
             inserted,
             modified,
@@ -78,12 +78,12 @@ impl BoundingBoxComponentSystem {
     }
 }
 
-impl<'a> System<'a> for BoundingBoxComponentSystem {
+impl<'a> System<'a> for AABBComponentSystem {
     type SystemData = (
         Entities<'a>,
         ReadStorage<'a, PrimitiveGeometryComponent>,
         ReadStorage<'a, TransformComponent>,
-        WriteStorage<'a, BoundingBoxComponent>,
+        WriteStorage<'a, AABBComponent>,
     );
 
     fn run(
@@ -111,7 +111,7 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
         {
             let bbox = geom.geometry().bounding_box(&transform.0);
             bbox_storage
-                .insert(entity, BoundingBoxComponent(bbox))
+                .insert(entity, AABBComponent(bbox))
                 .unwrap_or_else(|err| panic!("{:?}", err));
         }
 
@@ -119,7 +119,7 @@ impl<'a> System<'a> for BoundingBoxComponentSystem {
             (&entities, &geom_storage, &transform_storage, &self.inserted).join()
         {
             let bbox = geom.geometry().bounding_box(&transform.0);
-            *bbox_storage.get_mut(entity).unwrap() = BoundingBoxComponent(bbox);
+            *bbox_storage.get_mut(entity).unwrap() = AABBComponent(bbox);
         }
     }
 }
@@ -129,7 +129,7 @@ pub struct SelectionSystem;
 impl<'a> System<'a> for SelectionSystem {
     type SystemData = (
         Entities<'a>,
-        ReadStorage<'a, BoundingBoxComponent>,
+        ReadStorage<'a, AABBComponent>,
         WriteExpect<'a, GameState>,
     );
 

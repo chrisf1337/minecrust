@@ -15,47 +15,47 @@ pub enum Face {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct BoundingBox {
+pub struct AABB {
     pub min: Point3f,
     pub max: Point3f,
 }
 
-impl BoundingBox {
-    pub fn new(min: Point3f, max: Point3f) -> BoundingBox {
-        BoundingBox {
+impl AABB {
+    pub fn new(min: Point3f, max: Point3f) -> AABB {
+        AABB {
             min: pt3f::min(&min, &max),
             max: pt3f::max(&min, &max),
         }
     }
 
-    fn _merge_two_bboxes(a: &BoundingBox, b: &BoundingBox) -> BoundingBox {
-        BoundingBox {
+    fn _merge_two_bboxes(a: &AABB, b: &AABB) -> AABB {
+        AABB {
             min: pt3f::min(&a.min, &b.min),
             max: pt3f::max(&a.max, &b.max),
         }
     }
 
-    pub fn merge_bboxes(bboxes: &[BoundingBox]) -> BoundingBox {
+    pub fn merge_bboxes(bboxes: &[AABB]) -> AABB {
         if bboxes.len() == 1 {
             bboxes[0]
         } else {
             let mut bbox = bboxes[0];
             for bb in &bboxes[0..] {
-                bbox = BoundingBox::_merge_two_bboxes(&bbox, bb);
+                bbox = AABB::_merge_two_bboxes(&bbox, bb);
             }
             bbox
         }
     }
 
-    pub fn new_infinite() -> BoundingBox {
-        BoundingBox::new(
+    pub fn new_infinite() -> AABB {
+        AABB::new(
             Point3f::new(-INFINITY, -INFINITY, -INFINITY),
             Point3f::new(INFINITY, INFINITY, INFINITY),
         )
     }
 
-    pub fn transform(&self, t: &Transform3f) -> BoundingBox {
-        BoundingBox::new(t * self.min, t * self.max)
+    pub fn transform(&self, t: &Transform3f) -> AABB {
+        AABB::new(t * self.min, t * self.max)
     }
 
     pub fn face(&self, point: &Point3f) -> Option<Face> {
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_face() {
-        let bbox = BoundingBox::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let bbox = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         assert_eq!(bbox.face(&Point3f::new(0.0, 1.0, 0.0)), Some(Face::Top));
         assert_eq!(bbox.face(&Point3f::new(0.0, -1.0, 0.0)), Some(Face::Bottom));
         assert_eq!(bbox.face(&Point3f::new(-1.0, 0.5, 0.5)), Some(Face::Left));

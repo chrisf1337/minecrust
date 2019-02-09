@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{BoundingBox, PrimitiveGeometry},
+    geometry::{PrimitiveGeometry, AABB},
     types::prelude::*,
     vulkan::Vertex3f,
 };
@@ -54,10 +54,10 @@ impl PrimitiveGeometry for Rectangle {
             .collect()
     }
 
-    fn bounding_box(&self, transform: &Transform3f) -> BoundingBox {
+    fn bounding_box(&self, transform: &Transform3f) -> AABB {
         let min = transform * self.vertices[0].pos;
         let max = transform * self.vertices[3].pos;
-        BoundingBox::new(min, max)
+        AABB::new(min, max)
     }
 }
 

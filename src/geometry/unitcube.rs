@@ -1,6 +1,6 @@
 use crate::na::{Isometry, Rotation3, Translation3};
 use crate::{
-    geometry::{square::Square, BoundingBox, PrimitiveGeometry},
+    geometry::{square::Square, PrimitiveGeometry, AABB},
     types::prelude::*,
     vulkan::Vertex3f,
 };
@@ -70,7 +70,7 @@ impl PrimitiveGeometry for UnitCube {
         vertices
     }
 
-    fn bounding_box(&self, transform: &Transform3f) -> BoundingBox {
+    fn bounding_box(&self, transform: &Transform3f) -> AABB {
         let min = transform
             * Point3f::new(
                 -self.side_len / 2.0,
@@ -83,6 +83,6 @@ impl PrimitiveGeometry for UnitCube {
                 self.side_len / 2.0,
                 self.side_len / 2.0,
             );
-        BoundingBox::new(min, max)
+        AABB::new(min, max)
     }
 }

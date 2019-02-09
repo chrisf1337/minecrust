@@ -7,12 +7,12 @@ use nalgebra as na;
 
 #[macro_use]
 mod utils;
-mod bvh;
 mod camera;
 mod ecs;
 mod event_handlers;
 pub mod game;
 mod geometry;
+mod octree;
 pub mod renderer;
 mod types;
 pub mod vulkan;

@@ -1,10 +1,10 @@
-pub mod boundingbox;
+pub mod aabb;
 pub mod ray;
 pub mod rectangle;
 pub mod square;
 pub mod unitcube;
 
-pub use self::{boundingbox::BoundingBox, unitcube::UnitCube};
+pub use self::{aabb::AABB, unitcube::UnitCube};
 
 use crate::{types::prelude::*, vulkan::Vertex3f};
 
@@ -14,5 +14,5 @@ pub trait PrimitiveGeometry: Send + Sync {
 
     fn vertices(&self, transform: &Transform3f) -> Vec<Point3f>;
 
-    fn bounding_box(&self, transform: &Transform3f) -> BoundingBox;
+    fn bounding_box(&self, transform: &Transform3f) -> AABB;
 }

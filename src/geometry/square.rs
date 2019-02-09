@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{rectangle::Rectangle, BoundingBox, PrimitiveGeometry},
+    geometry::{rectangle::Rectangle, PrimitiveGeometry, AABB},
     types::prelude::*,
     vulkan::Vertex3f,
 };
@@ -26,7 +26,7 @@ impl PrimitiveGeometry for Square {
         self.rect.vertices(transform)
     }
 
-    fn bounding_box(&self, transform: &Transform3f) -> BoundingBox {
+    fn bounding_box(&self, transform: &Transform3f) -> AABB {
         self.rect.bounding_box(transform)
     }
 }

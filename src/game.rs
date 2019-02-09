@@ -1,7 +1,7 @@
 use crate::{
     camera::{Camera, CameraAnimation},
     ecs::{
-        BoundingBoxComponent, BoundingBoxComponentSystem, PrimitiveGeometryComponent, RenderSystem,
+        AABBComponent, AABBComponentSystem, PrimitiveGeometryComponent, RenderSystem,
         SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
@@ -78,25 +78,25 @@ impl<'a, 'b> Game<'a, 'b> {
         let mut world = World::new();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
-        world.register::<BoundingBoxComponent>();
+        world.register::<AABBComponent>();
         world.add_resource(state);
 
         let dispatcher = {
             let mut transform_components = world.write_storage::<TransformComponent>();
             DispatcherBuilder::new()
                 .with(
-                    BoundingBoxComponentSystem::new(
+                    AABBComponentSystem::new(
                         transform_components.register_reader(),
                         BitSet::new(),
                         BitSet::new(),
                     ),
-                    "BoundingBoxComponentSystem",
+                    "AABBComponentSystem",
                     &[],
                 )
                 .with(
                     SelectionSystem,
                     "SelectionSystem",
-                    &["BoundingBoxComponentSystem"],
+                    &["AABBComponentSystem"],
                 )
                 .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),

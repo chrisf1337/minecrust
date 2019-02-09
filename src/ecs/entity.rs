@@ -1,6 +1,6 @@
 use crate::{
-    ecs::{BoundingBoxComponent, PrimitiveGeometryComponent, TransformComponent},
-    geometry::{BoundingBox, UnitCube},
+    ecs::{AABBComponent, PrimitiveGeometryComponent, TransformComponent},
+    geometry::{UnitCube, AABB},
     types::prelude::*,
 };
 use specs::{world::Builder, ReadStorage, WriteStorage};
@@ -22,7 +22,7 @@ impl Entity {
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
-        bbox_storage: &mut WriteStorage<BoundingBoxComponent>,
+        bbox_storage: &mut WriteStorage<AABBComponent>,
         entity: &Entity,
     ) -> Entity {
         let entity = Entity::new_with_transform(
@@ -33,7 +33,7 @@ impl Entity {
         entity.set_geometry(geom_storage, entity.geometry(geom_storage).clone());
         entity.set_bounding_box(
             bbox_storage,
-            BoundingBoxComponent(*entity.bounding_box(bbox_storage)),
+            AABBComponent(*entity.bounding_box(bbox_storage)),
         );
         entity
     }
@@ -55,17 +55,17 @@ impl Entity {
     pub fn new_unitcube(
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
-        bbox_storage: &mut WriteStorage<BoundingBoxComponent>,
+        bbox_storage: &mut WriteStorage<AABBComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
         transform: Transform3f,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
-        let bbox = BoundingBox::new(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
+        let bbox = AABB::new(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
             .transform(&transform);
         let entity = entities
             .build_entity()
             .with(TransformComponent(transform), transform_storage)
-            .with(BoundingBoxComponent(bbox), bbox_storage)
+            .with(AABBComponent(bbox), bbox_storage)
             .with(PrimitiveGeometryComponent::UnitCube(unitcube), geom_storage)
             .build();
         Entity { entity }
@@ -138,21 +138,14 @@ impl Entity {
         }
     }
 
-    pub fn bounding_box<'a, D>(
-        &self,
-        storage: &'a specs::Storage<BoundingBoxComponent, D>,
-    ) -> &'a BoundingBox
+    pub fn bounding_box<'a, D>(&self, storage: &'a specs::Storage<AABBComponent, D>) -> &'a AABB
     where
-        D: Deref<Target = specs::storage::MaskedStorage<BoundingBoxComponent>>,
+        D: Deref<Target = specs::storage::MaskedStorage<AABBComponent>>,
     {
         &self.component(storage).0
     }
 
-    pub fn set_bounding_box(
-        &self,
-        storage: &mut WriteStorage<BoundingBoxComponent>,
-        bbox: BoundingBoxComponent,
-    ) {
+    pub fn set_bounding_box(&self, storage: &mut WriteStorage<AABBComponent>, bbox: AABBComponent) {
         if let Some(bb) = storage.get_mut(self.entity) {
             *bb = bbox
         } else {
