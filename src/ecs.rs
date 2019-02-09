@@ -85,7 +85,7 @@ impl<'a> System<'a> for AABBComponentSystem {
 
     fn run(
         &mut self,
-        (entities, geom_storage, transform_storage, mut bbox_storage): Self::SystemData,
+        (entities, geom_storage, transform_storage, mut aabb_storage): Self::SystemData,
     ) {
         self.inserted.clear();
         self.modified.clear();
@@ -106,17 +106,17 @@ impl<'a> System<'a> for AABBComponentSystem {
         for (entity, geom, transform, _) in
             (&entities, &geom_storage, &transform_storage, &self.inserted).join()
         {
-            let bbox = geom.geometry().bounding_box(&transform.0);
-            bbox_storage
-                .insert(entity, AABBComponent(bbox))
+            let aabb = geom.geometry().bounding_box(&transform.0);
+            aabb_storage
+                .insert(entity, AABBComponent(aabb))
                 .unwrap_or_else(|err| panic!("{:?}", err));
         }
 
         for (entity, geom, transform, _) in
             (&entities, &geom_storage, &transform_storage, &self.inserted).join()
         {
-            let bbox = geom.geometry().bounding_box(&transform.0);
-            *bbox_storage.get_mut(entity).unwrap() = AABBComponent(bbox);
+            let aabb = geom.geometry().bounding_box(&transform.0);
+            *aabb_storage.get_mut(entity).unwrap() = AABBComponent(aabb);
         }
     }
 }
@@ -130,7 +130,7 @@ impl<'a> System<'a> for SelectionSystem {
         WriteExpect<'a, GameState>,
     );
 
-    fn run(&mut self, (entities, bbox_storage, mut game_state): Self::SystemData) {
+    fn run(&mut self, (entities, aabb_storage, mut game_state): Self::SystemData) {
         let game_state = game_state.deref_mut();
         let GameState {
             ref camera,
@@ -140,8 +140,8 @@ impl<'a> System<'a> for SelectionSystem {
 
         let ray = Ray::new(camera.pos, camera.direction().unwrap());
         let mut new_selected: Option<(f32, Entity)> = None;
-        for (entity, bbox) in (&entities, &bbox_storage).join() {
-            if let Some((t, _)) = ray.intersect_bbox_t(&bbox.0) {
+        for (entity, aabb) in (&entities, &aabb_storage).join() {
+            if let Some((t, _)) = ray.intersect_aabb_t(&aabb.0) {
                 if let Some((intersect_t, _)) = new_selected {
                     if t < intersect_t {
                         new_selected = Some((t, entity));

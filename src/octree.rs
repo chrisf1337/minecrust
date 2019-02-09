@@ -11,7 +11,7 @@ const CHILD_NODE_MAX_SIZE: usize = 8;
 #[derive(Debug, Clone)]
 struct Node {
     center: Point3f,
-    bbox: AABB,
+    aabb: AABB,
     children: Option<NodeOctPartition>,
     entities: Vec<Entity>,
 }
@@ -20,7 +20,7 @@ impl Node {
     // fn _new_from_cubes(
     //     entities: &[Entity],
     //     transform_storage: &ReadStorage<TransformComponent>,
-    //     bbox_storage: &ReadStorage<AABBComponent>,
+    //     aabb_storage: &ReadStorage<AABBComponent>,
     //     child_node_max_size: usize,
     // ) -> Option<Node> {
     //     if entities.is_empty() {
@@ -41,9 +41,9 @@ impl Node {
     //     let origin_z = median(&mut centers.iter().map(|&p| p.z).collect::<Vec<f32>>());
     //     let origin = Point3f::new(origin_x, origin_y, origin_z);
 
-    //     let bboxes: Vec<AABB> = entities
+    //     let aabbs: Vec<AABB> = entities
     //         .iter()
-    //         .map(|ety| *ety.bounding_box(bbox_storage))
+    //         .map(|ety| *ety.bounding_box(aabb_storage))
     //         .collect();
 
     //     if entities.len() > child_node_max_size {
@@ -51,53 +51,53 @@ impl Node {
     //         let tfr = Box::new(Node::_new_from_cubes(
     //             &partition.tfr,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let tfl = Box::new(Node::_new_from_cubes(
     //             &partition.tfl,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let tbr = Box::new(Node::_new_from_cubes(
     //             &partition.tbr,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let tbl = Box::new(Node::_new_from_cubes(
     //             &partition.tbl,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let bfr = Box::new(Node::_new_from_cubes(
     //             &partition.bfr,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let bfl = Box::new(Node::_new_from_cubes(
     //             &partition.bfl,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let bbr = Box::new(Node::_new_from_cubes(
     //             &partition.bbr,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         let bbl = Box::new(Node::_new_from_cubes(
     //             &partition.bbl,
     //             transform_storage,
-    //             bbox_storage,
+    //             aabb_storage,
     //             child_node_max_size,
     //         ));
     //         Some(Node::new(
-    //             AABB::merge_bboxes(&bboxes),
+    //             AABB::merge_aabbs(&aabbs),
     //             NodeType::Internal(OctPartition {
     //                 tfr,
     //                 tfl,
@@ -111,7 +111,7 @@ impl Node {
     //         ))
     //     } else {
     //         Some(Node::new(
-    //             AABB::merge_bboxes(&bboxes),
+    //             AABB::merge_aabbs(&aabbs),
     //             NodeType::Leaf(entities.to_vec()),
     //         ))
     //     }
@@ -120,12 +120,12 @@ impl Node {
     // pub fn new_from_cubes(
     //     entities: &[Entity],
     //     transform_storage: &ReadStorage<TransformComponent>,
-    //     bbox_storage: &ReadStorage<AABBComponent>,
+    //     aabb_storage: &ReadStorage<AABBComponent>,
     // ) -> Option<Node> {
     //     Node::_new_from_cubes(
     //         entities,
     //         transform_storage,
-    //         bbox_storage,
+    //         aabb_storage,
     //         CHILD_NODE_MAX_SIZE,
     //     )
     // }
@@ -135,7 +135,7 @@ impl Node {
     //     ray: &Ray,
     //     storage: &ReadStorage<AABBComponent>,
     // ) -> Option<Entity> {
-    //     if ray.intersect_bbox(&self.bbox).is_none() {
+    //     if ray.intersect_aabb(&self.aabb).is_none() {
     //         return None;
     //     }
     //     match &self.ty {
@@ -195,7 +195,7 @@ impl Node {
     //     &mut self,
     //     entity: Entity,
     //     transform_storage: &ReadStorage<TransformComponent>,
-    //     bbox_storage: &ReadStorage<AABBComponent>,
+    //     aabb_storage: &ReadStorage<AABBComponent>,
     // ) {
 
     // }
@@ -280,7 +280,7 @@ impl Eq for OctPartition {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::pt3f::Point3fExt;
+    use crate::types::prelude::*;
     use alga::general::SubsetOf;
     use specs::World;
 

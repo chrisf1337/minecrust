@@ -64,9 +64,10 @@ impl PrimitiveGeometry for Rectangle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::na::geometry::Isometry;
-    use crate::na::{Rotation3, Translation3};
-    use crate::utils::pt3f::Point3fExt;
+    use crate::{
+        na::{geometry::Isometry, Rotation3, Translation3},
+        types::prelude::*,
+    };
     use alga::general::SubsetOf;
 
     #[test]

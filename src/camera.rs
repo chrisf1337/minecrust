@@ -1,8 +1,7 @@
 use crate::{
     na::Unit,
     types::prelude::*,
-    utils::vec3f::yaw_pitch_diff,
-    utils::{pt3f, quat4f, vec3f},
+    utils::{point3f, quaternion4f},
 };
 use std::{
     f32,
@@ -79,7 +78,7 @@ impl Camera {
     }
 
     pub fn rotate_to_dir(&mut self, direction: &Vector3f) {
-        self.rotate_to(yaw_pitch_diff(&Vector3f::z(), direction));
+        self.rotate_to(Vector3f::z().yaw_pitch_diff(direction));
     }
 }
 
@@ -103,7 +102,7 @@ impl CameraAnimation {
         start_time: f32,
         duration: f32,
     ) -> CameraAnimation {
-        let (mut yaw_diff, pitch_diff) = vec3f::yaw_pitch_diff(&camera.direction(), &end_direction);
+        let (mut yaw_diff, pitch_diff) = camera.direction().yaw_pitch_diff(end_direction);
         if yaw_diff > PI {
             yaw_diff -= 2.0 * PI;
         } else if yaw_diff < -PI {
@@ -127,9 +126,9 @@ impl CameraAnimation {
     pub fn at(&self, time: f32) -> (Point3f, UnitQuaternionf, UnitQuaternionf) {
         let t = (time - self.start_time) / self.duration;
         (
-            pt3f::clerp(&self.start_pos, &self.end_pos, t),
-            quat4f::clerp(&self.start_yaw_q, &self.end_yaw_q, t),
-            quat4f::clerp(&self.start_pitch_q, &self.end_pitch_q, t),
+            point3f::clerp(&self.start_pos, &self.end_pos, t),
+            quaternion4f::clerp(&self.start_yaw_q, &self.end_yaw_q, t),
+            quaternion4f::clerp(&self.start_pitch_q, &self.end_pitch_q, t),
         )
     }
 

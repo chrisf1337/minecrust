@@ -21,9 +21,9 @@ impl Ray {
         self.origin + t * self.direction
     }
 
-    pub fn intersect_bbox_t(&self, bbox: &AABB) -> Option<(f32, Point3f)> {
-        let min = bbox.min;
-        let max = bbox.max;
+    pub fn intersect_aabb_t(&self, aabb: &AABB) -> Option<(f32, Point3f)> {
+        let min = aabb.min;
+        let max = aabb.max;
 
         let mut tmin = (min.x - self.origin.x) / self.direction.x;
         let mut tmax = (max.x - self.origin.x) / self.direction.x;
@@ -64,18 +64,18 @@ impl Ray {
         }
     }
 
-    pub fn intersect_bbox(&self, bbox: &AABB) -> Option<Point3f> {
-        self.intersect_bbox_t(bbox).map(|(_, p)| p)
+    pub fn intersect_aabb(&self, aabb: &AABB) -> Option<Point3f> {
+        self.intersect_aabb_t(aabb).map(|(_, p)| p)
     }
 
-    pub fn intersect_bboxes(&self, bboxes: &[AABB]) -> Option<(usize, Point3f)> {
-        let mut bboxes: Vec<_> = bboxes
+    pub fn intersect_aabbs(&self, aabbs: &[AABB]) -> Option<(usize, Point3f)> {
+        let mut aabbs: Vec<_> = aabbs
             .iter()
-            .filter_map(|bb| self.intersect_bbox_t(bb))
+            .filter_map(|bb| self.intersect_aabb_t(bb))
             .enumerate()
             .collect();
-        bboxes.sort_unstable_by(|(_, (t1, _)), (_, (t2, _))| t1.partial_cmp(t2).unwrap());
-        bboxes.get(0).map(|(i, (_, p))| (*i, *p))
+        aabbs.sort_unstable_by(|(_, (t1, _)), (_, (t2, _))| t1.partial_cmp(t2).unwrap());
+        aabbs.get(0).map(|(i, (_, p))| (*i, *p))
     }
 
     pub fn intersect_entity_t(
@@ -83,7 +83,7 @@ impl Ray {
         entity: Entity,
         storage: &ReadStorage<AABBComponent>,
     ) -> Option<(f32, Point3f)> {
-        self.intersect_bbox_t(entity.bounding_box(storage))
+        self.intersect_aabb_t(entity.bounding_box(storage))
     }
 
     pub fn intersect_entities(
@@ -91,7 +91,7 @@ impl Ray {
         entities: &[Entity],
         storage: &ReadStorage<AABBComponent>,
     ) -> Option<(usize, Point3f)> {
-        self.intersect_bboxes(
+        self.intersect_aabbs(
             &entities
                 .iter()
                 .map(|e| *e.bounding_box(storage))
@@ -103,13 +103,13 @@ impl Ray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::pt3f::Point3fExt;
+    use crate::types::prelude::*;
 
     #[test]
     fn test_intersect1() {
         let r = Ray::new(Point3f::origin(), Vector3f::x());
-        let bbox = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
-        let intersection = r.intersect_bbox(&bbox);
+        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_some());
         assert!(intersection
             .unwrap()
@@ -119,8 +119,8 @@ mod tests {
     #[test]
     fn test_intersect2() {
         let r = Ray::new(Point3f::new(-1.0, -0.5, 2.0), Vector3f::new(1.0, 0.0, -1.0));
-        let bbox = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
-        let intersection = r.intersect_bbox(&bbox);
+        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_some());
         println!("{:?}", intersection);
         assert!(intersection
@@ -131,24 +131,24 @@ mod tests {
     #[test]
     fn test_no_intersect1() {
         let r = Ray::new(Point3f::new(2.0, 0.0, 0.0), Vector3f::x());
-        let bbox = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
-        let intersection = r.intersect_bbox(&bbox);
+        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_none());
     }
 
     #[test]
     fn test_no_intersect2() {
-        let bbox = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let dir = Vector3f::new(0.99, 0.0, 1.0);
         let r = Ray::new(Point3f::new(0.0, 0.0, 2.0), dir);
-        assert_eq!(r.intersect_bbox(&bbox), None);
+        assert_eq!(r.intersect_aabb(&aabb), None);
     }
 
     #[test]
-    fn test_intersect_bboxes1() {
+    fn test_intersect_aabbs1() {
         let r = Ray::new(Point3f::new(-2.0, 0.5, -0.5), Vector3f::x());
         let intersection = r
-            .intersect_bboxes(&[
+            .intersect_aabbs(&[
                 AABB::new(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
                 AABB::new(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ])
@@ -157,10 +157,10 @@ mod tests {
     }
 
     #[test]
-    fn test_intersect_bboxes2() {
+    fn test_intersect_aabbs2() {
         let r = Ray::new(Point3f::new(-2.0, 1.5, -0.5), Vector3f::x());
         assert_eq!(
-            r.intersect_bboxes(&[
+            r.intersect_aabbs(&[
                 AABB::new(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
                 AABB::new(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ]),

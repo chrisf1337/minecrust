@@ -1,7 +1,12 @@
 mod color;
+mod f32ext;
+mod matrix3fext;
 mod matrix4fext;
+mod point3fext;
 pub mod prelude;
 mod transform3fext;
+mod vector3fext;
+mod vector4fext;
 
 pub use crate::types::color::Color;
 

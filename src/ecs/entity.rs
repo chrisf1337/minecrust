@@ -22,7 +22,7 @@ impl Entity {
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
-        bbox_storage: &mut WriteStorage<AABBComponent>,
+        aabb_storage: &mut WriteStorage<AABBComponent>,
         entity: &Entity,
     ) -> Entity {
         let entity = Entity::new_with_transform(
@@ -32,8 +32,8 @@ impl Entity {
         );
         entity.set_geometry(geom_storage, entity.geometry(geom_storage).clone());
         entity.set_bounding_box(
-            bbox_storage,
-            AABBComponent(*entity.bounding_box(bbox_storage)),
+            aabb_storage,
+            AABBComponent(*entity.bounding_box(aabb_storage)),
         );
         entity
     }
@@ -55,17 +55,17 @@ impl Entity {
     pub fn new_unitcube(
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
-        bbox_storage: &mut WriteStorage<AABBComponent>,
+        aabb_storage: &mut WriteStorage<AABBComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
         transform: Transform3f,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
-        let bbox = AABB::new(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
+        let aabb = AABB::new(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
             .transform(&transform);
         let entity = entities
             .build_entity()
             .with(TransformComponent(transform), transform_storage)
-            .with(AABBComponent(bbox), bbox_storage)
+            .with(AABBComponent(aabb), aabb_storage)
             .with(PrimitiveGeometryComponent::UnitCube(unitcube), geom_storage)
             .build();
         Entity { entity }
@@ -145,11 +145,11 @@ impl Entity {
         &self.component(storage).0
     }
 
-    pub fn set_bounding_box(&self, storage: &mut WriteStorage<AABBComponent>, bbox: AABBComponent) {
+    pub fn set_bounding_box(&self, storage: &mut WriteStorage<AABBComponent>, aabb: AABBComponent) {
         if let Some(bb) = storage.get_mut(self.entity) {
-            *bb = bbox
+            *bb = aabb
         } else {
-            storage.insert(self.entity, bbox).expect("insert() failed");
+            storage.insert(self.entity, aabb).expect("insert() failed");
         }
     }
 

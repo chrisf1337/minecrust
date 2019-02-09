@@ -3,7 +3,7 @@ use crate::{
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
     types::{prelude::*, Color},
-    utils::{clamp, mat4f},
+    utils::clamp,
     vulkan::{
         buffer::Buffer,
         descriptor::{DescriptorSetLayout, DescriptorSetLayoutBinding},
@@ -307,7 +307,7 @@ impl VulkanApp {
             ));
             screen_space_normalize_mat[(0, 2)] = -1.0;
             screen_space_normalize_mat[(1, 2)] = -1.0;
-            let screen_space_normalize_mat = mat4f::from_mat3f(screen_space_normalize_mat);
+            let screen_space_normalize_mat = Matrix4f::from_matrix3f(screen_space_normalize_mat);
 
             let graphics_texture_sampler = core.device.create_sampler(
                 &vk::SamplerCreateInfo::builder()
@@ -1892,7 +1892,7 @@ impl VulkanApp {
             screen_space_normalize_mat[(0, 2)] = -1.0;
             screen_space_normalize_mat[(1, 2)] = -1.0;
 
-            self.screen_space_normalize_mat = mat4f::from_mat3f(screen_space_normalize_mat);
+            self.screen_space_normalize_mat = Matrix4f::from_matrix3f(screen_space_normalize_mat);
 
             self.uniform_push_constants = UniformPushConstants {
                 proj_view: self.proj_mat * self.view_mat,
