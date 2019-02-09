@@ -1,6 +1,6 @@
 use crate::{
     ecs::{entity::Entity, AABBComponent, PrimitiveGeometryComponent, TransformComponent},
-    geometry::{ray::Ray, AABB},
+    geometry::{Ray, AABB},
     types::prelude::*,
 };
 use num_traits::identities::Zero;

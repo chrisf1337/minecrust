@@ -1,10 +1,11 @@
-pub mod aabb;
-pub mod ray;
-pub mod rectangle;
-pub mod square;
-pub mod unitcube;
+mod aabb;
+mod aap;
+mod ray;
+mod rectangle;
+mod square;
+mod unitcube;
 
-pub use self::{aabb::AABB, unitcube::UnitCube};
+pub use self::{aabb::AABB, ray::Ray, rectangle::Rectangle, square::Square, unitcube::UnitCube};
 
 use crate::{types::prelude::*, vulkan::Vertex3f};
 

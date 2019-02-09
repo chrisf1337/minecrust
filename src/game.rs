@@ -5,7 +5,7 @@ use crate::{
         SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{square::Square, unitcube::UnitCube},
+    geometry::{Square, UnitCube},
     na::Translation3,
     renderer::Renderer,
     types::prelude::*,
@@ -93,11 +93,7 @@ impl<'a, 'b> Game<'a, 'b> {
                     "AABBComponentSystem",
                     &[],
                 )
-                .with(
-                    SelectionSystem,
-                    "SelectionSystem",
-                    &["AABBComponentSystem"],
-                )
+                .with(SelectionSystem, "SelectionSystem", &["AABBComponentSystem"])
                 .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),
                 })

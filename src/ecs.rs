@@ -2,10 +2,7 @@ pub mod entity;
 
 use crate::{
     game::GameState,
-    geometry::{
-        aabb::AABB, ray::Ray, rectangle::Rectangle, square::Square, unitcube::UnitCube,
-        PrimitiveGeometry,
-    },
+    geometry::{PrimitiveGeometry, Ray, Rectangle, Square, UnitCube, AABB},
     renderer::{RenderData, Renderer},
     types::prelude::*,
     utils::f32,
