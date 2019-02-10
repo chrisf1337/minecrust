@@ -9,6 +9,7 @@ pub enum Axis {
 
 /// Axis-aligned plane
 pub struct AAP {
+    /// Axis along which the normal is aligned
     axis: Axis,
     intercept: f32,
 }
@@ -18,18 +19,17 @@ impl AAP {
         AAP { axis, intercept }
     }
 
-    pub fn intersects_aabb(self, aabb: &AABB) -> bool {
-        let intercept_vec = Vector3f::from_point3f(self.intercept_pt());
+    pub fn intersects_aabb(&self, aabb: &AABB) -> bool {
+        let intercept_pt = self.intercept_pt();
+        let normal = match self.axis {
+            Axis::X => Vector3f::x_axis(),
+            Axis::Y => Vector3f::y_axis(),
+            Axis::Z => Vector3f::z_axis(),
+        };
         let aabb_points = aabb.points();
-        let first_sign = Vector3f::from_point3f(aabb_points[0])
-            .dot(&intercept_vec)
-            .sign();
+        let first_sign = (aabb_points[0] - intercept_pt).dot(&normal).sign();
         for &aabb_point in &aabb_points[1..] {
-            if Vector3f::from_point3f(aabb_point)
-                .dot(&intercept_vec)
-                .sign()
-                != first_sign
-            {
+            if (aabb_point - intercept_pt).dot(&normal).sign() != first_sign {
                 return true;
             }
         }
@@ -43,5 +43,33 @@ impl AAP {
             Axis::Y => Point3f::new(0.0, self.intercept, 0.0),
             Axis::Z => Point3f::new(0.0, 0.0, self.intercept),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_intersects_aabb() {
+        let aap = AAP::new(Axis::X, 2.0);
+        assert!(aap.intersects_aabb(&AABB::new(
+            Point3f::new(1.0, 0.0, 0.0),
+            Point3f::new(3.0, 1.0, 1.0)
+        )));
+        assert!(!aap.intersects_aabb(&AABB::new(
+            Point3f::new(1.0, 0.0, 0.0),
+            Point3f::new(1.5, 1.0, 1.0)
+        )));
+
+        let aap = AAP::new(Axis::X, -2.0);
+        assert!(aap.intersects_aabb(&AABB::new(
+            Point3f::new(-1.0, 0.0, 0.0),
+            Point3f::new(-3.0, 1.0, 1.0)
+        )));
+        assert!(!aap.intersects_aabb(&AABB::new(
+            Point3f::new(-1.0, 0.0, 0.0),
+            Point3f::new(-1.5, 1.0, 1.0)
+        )));
     }
 }

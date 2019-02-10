@@ -70,7 +70,7 @@ impl PrimitiveGeometry for UnitCube {
         vertices
     }
 
-    fn bounding_box(&self, transform: &Transform3f) -> AABB {
+    fn aabb(&self, transform: &Transform3f) -> AABB {
         let min = transform
             * Point3f::new(
                 -self.side_len / 2.0,

@@ -26,8 +26,8 @@ impl PrimitiveGeometry for Square {
         self.rect.vertices(transform)
     }
 
-    fn bounding_box(&self, transform: &Transform3f) -> AABB {
-        self.rect.bounding_box(transform)
+    fn aabb(&self, transform: &Transform3f) -> AABB {
+        self.rect.aabb(transform)
     }
 }
 

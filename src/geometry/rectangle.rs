@@ -54,7 +54,7 @@ impl PrimitiveGeometry for Rectangle {
             .collect()
     }
 
-    fn bounding_box(&self, transform: &Transform3f) -> AABB {
+    fn aabb(&self, transform: &Transform3f) -> AABB {
         let min = transform * self.vertices[0].pos;
         let max = transform * self.vertices[3].pos;
         AABB::new(min, max)

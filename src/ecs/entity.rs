@@ -4,7 +4,7 @@ use crate::{
     types::prelude::*,
 };
 use specs::{world::Builder, ReadStorage, WriteStorage};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Entity {
@@ -19,45 +19,40 @@ impl Entity {
     }
 
     pub fn new_clone(
+        entity: &Entity,
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
         aabb_storage: &mut WriteStorage<AABBComponent>,
-        entity: &Entity,
     ) -> Entity {
         let entity = Entity::new_with_transform(
+            entity.component(transform_storage).0,
             entities,
             transform_storage,
-            entity.component(transform_storage).0,
         );
         entity.set_geometry(geom_storage, entity.geometry(geom_storage).clone());
-        entity.set_bounding_box(
-            aabb_storage,
-            AABBComponent(*entity.bounding_box(aabb_storage)),
-        );
+        entity.set_aabb(aabb_storage, AABBComponent(*entity.aabb(aabb_storage)));
         entity
     }
 
     pub fn new_with_transform(
+        transform: Transform3f,
         entities: &specs::Entities,
         storage: &mut WriteStorage<TransformComponent>,
-        transform: Transform3f,
     ) -> Entity {
-        let entity = Entity::new_empty(entities);
-        entity.set_transform(storage, transform);
-        entity
+        Entity::new_empty(entities).with_component(TransformComponent(transform), storage)
     }
 
-    pub fn new_with_transform_w(world: &specs::World, transform: Transform3f) -> Entity {
-        Entity::new_with_transform(&world.entities(), &mut world.write_storage(), transform)
+    pub fn new_with_transform_w(transform: Transform3f, world: &specs::World) -> Entity {
+        Entity::new_with_transform(transform, &world.entities(), &mut world.write_storage())
     }
 
     pub fn new_unitcube(
+        transform: Transform3f,
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         aabb_storage: &mut WriteStorage<AABBComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
-        transform: Transform3f,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
         let aabb = AABB::new(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
@@ -71,14 +66,27 @@ impl Entity {
         Entity { entity }
     }
 
-    pub fn new_unitcube_w(world: &specs::World, transform: Transform3f) -> Entity {
+    pub fn new_unitcube_w(transform: Transform3f, world: &specs::World) -> Entity {
         Entity::new_unitcube(
+            transform,
             &world.entities(),
             &mut world.write_storage(),
             &mut world.write_storage(),
             &mut world.write_storage(),
-            transform,
         )
+    }
+
+    pub fn with_component<'a, T, D>(
+        self,
+        component: T,
+        storage: &'a mut specs::Storage<T, D>,
+    ) -> Self
+    where
+        T: specs::Component,
+        D: DerefMut<Target = specs::storage::MaskedStorage<T>>,
+    {
+        storage.insert(self.entity, component);
+        self
     }
 
     pub fn component<'a, T, D>(&self, storage: &'a specs::Storage<T, D>) -> &'a T
@@ -138,14 +146,14 @@ impl Entity {
         }
     }
 
-    pub fn bounding_box<'a, D>(&self, storage: &'a specs::Storage<AABBComponent, D>) -> &'a AABB
+    pub fn aabb<'a, D>(&self, storage: &'a specs::Storage<AABBComponent, D>) -> &'a AABB
     where
         D: Deref<Target = specs::storage::MaskedStorage<AABBComponent>>,
     {
         &self.component(storage).0
     }
 
-    pub fn set_bounding_box(&self, storage: &mut WriteStorage<AABBComponent>, aabb: AABBComponent) {
+    pub fn set_aabb(&self, storage: &mut WriteStorage<AABBComponent>, aabb: AABBComponent) {
         if let Some(bb) = storage.get_mut(self.entity) {
             *bb = aabb
         } else {

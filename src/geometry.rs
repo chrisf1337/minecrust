@@ -5,7 +5,14 @@ mod rectangle;
 mod square;
 mod unitcube;
 
-pub use self::{aabb::AABB, ray::Ray, rectangle::Rectangle, square::Square, unitcube::UnitCube};
+pub use self::{
+    aabb::AABB,
+    aap::{Axis, AAP},
+    ray::Ray,
+    rectangle::Rectangle,
+    square::Square,
+    unitcube::UnitCube,
+};
 
 use crate::{types::prelude::*, vulkan::Vertex3f};
 
@@ -15,5 +22,5 @@ pub trait PrimitiveGeometry: Send + Sync {
 
     fn vertices(&self, transform: &Transform3f) -> Vec<Point3f>;
 
-    fn bounding_box(&self, transform: &Transform3f) -> AABB;
+    fn aabb(&self, transform: &Transform3f) -> AABB;
 }

@@ -106,16 +106,21 @@ impl<'a> System<'a> for AABBComponentSystem {
         for (entity, geom, transform, _) in
             (&entities, &geom_storage, &transform_storage, &self.inserted).join()
         {
-            let aabb = geom.geometry().bounding_box(&transform.0);
-            aabb_storage
-                .insert(entity, AABBComponent(aabb))
-                .unwrap_or_else(|err| panic!("{:?}", err));
+            match aabb_storage.get_mut(entity) {
+                Some(_) => (),
+                None => {
+                    let aabb = geom.geometry().aabb(&transform.0);
+                    aabb_storage
+                        .insert(entity, AABBComponent(aabb))
+                        .unwrap_or_else(|err| panic!("{:?}", err));
+                }
+            }
         }
 
         for (entity, geom, transform, _) in
-            (&entities, &geom_storage, &transform_storage, &self.inserted).join()
+            (&entities, &geom_storage, &transform_storage, &self.modified).join()
         {
-            let aabb = geom.geometry().bounding_box(&transform.0);
+            let aabb = geom.geometry().aabb(&transform.0);
             *aabb_storage.get_mut(entity).unwrap() = AABBComponent(aabb);
         }
     }

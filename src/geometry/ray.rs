@@ -83,7 +83,7 @@ impl Ray {
         entity: Entity,
         storage: &ReadStorage<AABBComponent>,
     ) -> Option<(f32, Point3f)> {
-        self.intersect_aabb_t(entity.bounding_box(storage))
+        self.intersect_aabb_t(entity.aabb(storage))
     }
 
     pub fn intersect_entities(
@@ -94,7 +94,7 @@ impl Ray {
         self.intersect_aabbs(
             &entities
                 .iter()
-                .map(|e| *e.bounding_box(storage))
+                .map(|e| *e.aabb(storage))
                 .collect::<Vec<_>>(),
         )
     }

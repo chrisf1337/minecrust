@@ -1,6 +1,6 @@
 use crate::{
     ecs::{entity::Entity, AABBComponent, PrimitiveGeometryComponent, TransformComponent},
-    geometry::{Ray, AABB},
+    geometry::{Axis, Ray, AABB, AAP},
     types::prelude::*,
 };
 use num_traits::identities::Zero;
@@ -43,7 +43,7 @@ impl Node {
 
     //     let aabbs: Vec<AABB> = entities
     //         .iter()
-    //         .map(|ety| *ety.bounding_box(aabb_storage))
+    //         .map(|ety| *ety.aabb(aabb_storage))
     //         .collect();
 
     //     if entities.len() > child_node_max_size {
@@ -213,7 +213,7 @@ struct NodeOctPartition {
     bbl: Box<Option<Node>>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct OctPartition {
     tfr: Vec<Entity>,
     tfl: Vec<Entity>,
@@ -275,7 +275,53 @@ impl Eq for OctPartition {}
 //     partition
 // }
 
-// fn partition_entities(entities: &[Entity], point: &Point3f) -> (Vec<Entity>, OctPartition) {}
+fn partition_entities(
+    entities: &[Entity],
+    point: &Point3f,
+    transform_storage: &ReadStorage<TransformComponent>,
+    aabb_storage: &ReadStorage<AABBComponent>,
+) -> (Vec<Entity>, OctPartition) {
+    let x_plane = AAP::new(Axis::X, point.x);
+    let y_plane = AAP::new(Axis::Y, point.y);
+    let z_plane = AAP::new(Axis::Z, point.z);
+    let mut node_entities = vec![];
+    let mut oct_partition = OctPartition::default();
+    for &entity in entities {
+        let aabb = entity.aabb(aabb_storage);
+        if x_plane.intersects_aabb(&aabb)
+            || y_plane.intersects_aabb(&aabb)
+            || z_plane.intersects_aabb(&aabb)
+        {
+            node_entities.push(entity);
+        } else {
+            let v = entity.position(transform_storage) - point;
+            if v.x >= 0.0 {
+                if v.y >= 0.0 {
+                    if v.z >= 0.0 {
+                        oct_partition.tfr.push(entity);
+                    } else {
+                        oct_partition.tbr.push(entity);
+                    }
+                } else if v.z >= 0.0 {
+                    oct_partition.bfr.push(entity);
+                } else {
+                    oct_partition.bbr.push(entity);
+                }
+            } else if v.y >= 0.0 {
+                if v.z >= 0.0 {
+                    oct_partition.tfl.push(entity);
+                } else {
+                    oct_partition.tbl.push(entity);
+                }
+            } else if v.z >= 0.0 {
+                oct_partition.bfl.push(entity);
+            } else {
+                oct_partition.bbl.push(entity);
+            }
+        }
+    }
+    (node_entities, oct_partition)
+}
 
 #[cfg(test)]
 mod tests {
@@ -285,79 +331,88 @@ mod tests {
     use specs::World;
 
     #[test]
-    fn test_partition_pts() {
-        // let mut world = World::new();
-        // world.register::<TransformComponent>();
+    fn test_partition_entities() {
+        let mut world = World::new();
+        world.register::<TransformComponent>();
+        world.register::<AABBComponent>();
+        world.register::<PrimitiveGeometryComponent>();
 
-        // let entities = vec![
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, 1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, -1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, 1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, -1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, 1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, -1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, 1.0)),
-        //     ),
-        //     Entity::new_with_transform_w(
-        //         &world,
-        //         Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, -1.0)),
-        //     ),
-        // ];
+        let entities = vec![
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, 1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, -1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, 1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, -1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, 1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, -1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, 1.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, -1.0)),
+                &world,
+            ),
+        ];
 
-        // let partition = partition_pts(&world.read_storage(), &entities, &Point3f::origin());
-        // let storage = world.read_storage();
-        // assert_eq!(
-        //     *partition.tfr[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, 1.0))
-        // );
-        // assert_eq!(
-        //     *partition.tfl[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, 1.0))
-        // );
-        // assert_eq!(
-        //     *partition.tbr[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, -1.0))
-        // );
-        // assert_eq!(
-        //     *partition.tbl[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, -1.0))
-        // );
-        // assert_eq!(
-        //     *partition.bfr[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, 1.0))
-        // );
-        // assert_eq!(
-        //     *partition.bfl[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, 1.0))
-        // );
-        // assert_eq!(
-        //     *partition.bbr[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, -1.0))
-        // );
-        // assert_eq!(
-        //     *partition.bbl[0].transform(&storage),
-        //     Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, -1.0))
-        // );
+        let (node_entities, partition) = partition_entities(
+            &entities,
+            &Point3f::origin(),
+            &world.read_storage(),
+            &world.read_storage(),
+        );
+        let storage = world.read_storage();
+        assert_eq!(
+            *partition.tfr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.tfl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.tbr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, 1.0, -1.0))
+        );
+        assert_eq!(
+            *partition.tbl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, 1.0, -1.0))
+        );
+        assert_eq!(
+            *partition.bfr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.bfl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, 1.0))
+        );
+        assert_eq!(
+            *partition.bbr[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(1.0, -1.0, -1.0))
+        );
+        assert_eq!(
+            *partition.bbl[0].transform(&storage),
+            Transform3f::new_with_translation(Vector3f::new(-1.0, -1.0, -1.0))
+        );
+
+        assert_eq!(node_entities, vec![]);
     }
 
     #[test]
