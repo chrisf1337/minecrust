@@ -85,7 +85,9 @@ impl Entity {
         T: specs::Component,
         D: DerefMut<Target = specs::storage::MaskedStorage<T>>,
     {
-        storage.insert(self.entity, component);
+        storage
+            .insert(self.entity, component)
+            .expect("Entity::with_component() failed");
         self
     }
 

@@ -16,6 +16,14 @@ pub fn max(p1: &Point3f, p2: &Point3f) -> Point3f {
     )
 }
 
+pub fn mean(p1: &Point3f, p2: &Point3f) -> Point3f {
+    Point3f::new(
+        f32::mean(&[p1.x, p2.x]),
+        f32::mean(&[p1.y, p2.y]),
+        f32::mean(&[p1.z, p2.z]),
+    )
+}
+
 pub fn clerp(a: &Point3f, b: &Point3f, t: f32) -> Point3f {
     Point3f::new(
         f32::clerp(a.x, b.x, t),

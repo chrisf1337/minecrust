@@ -14,7 +14,19 @@ pub enum Face {
     Bottom,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
+pub struct OctPartition {
+    tfr: AABB,
+    tfl: AABB,
+    tbr: AABB,
+    tbl: AABB,
+    bfr: AABB,
+    bfl: AABB,
+    bbr: AABB,
+    bbl: AABB,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct AABB {
     pub min: Point3f,
     pub max: Point3f,
@@ -88,6 +100,45 @@ impl AABB {
             self.max,
         ]
     }
+
+    pub fn is_infinite(&self) -> bool {
+        self.min.is_infinite() || self.max.is_infinite()
+    }
+
+    pub fn partition(&self) -> OctPartition {
+        if self.is_infinite() {
+            panic!("{:?} is infinite", self);
+        }
+        let center = point3f::mean(&self.min, &self.max);
+        OctPartition {
+            tfl: AABB::new(
+                Point3f::new(self.min.x, center.y, center.z),
+                Point3f::new(center.x, self.max.y, self.max.z),
+            ),
+            tfr: AABB::new(center, self.max),
+            tbl: AABB::new(
+                Point3f::new(self.min.x, center.y, self.min.z),
+                Point3f::new(center.x, self.max.y, center.z),
+            ),
+            tbr: AABB::new(
+                Point3f::new(center.x, center.y, self.min.z),
+                Point3f::new(self.max.x, self.max.y, center.z),
+            ),
+            bfl: AABB::new(
+                Point3f::new(self.min.x, self.min.y, center.z),
+                Point3f::new(center.x, center.y, self.max.z),
+            ),
+            bfr: AABB::new(
+                Point3f::new(center.x, self.min.y, center.z),
+                Point3f::new(self.max.x, center.y, self.max.z),
+            ),
+            bbl: AABB::new(self.min, center),
+            bbr: AABB::new(
+                Point3f::new(center.x, self.min.y, self.min.z),
+                Point3f::new(self.max.x, center.y, center.z),
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -103,5 +154,45 @@ mod tests {
         assert_eq!(aabb.face(&Point3f::new(1.0, 0.5, 0.5)), Some(Face::Right));
         assert_eq!(aabb.face(&Point3f::new(0.5, 0.5, 1.0)), Some(Face::Front));
         assert_eq!(aabb.face(&Point3f::new(-0.5, 0.5, -1.0)), Some(Face::Back));
+    }
+
+    #[test]
+    fn test_partition() {
+        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let partition = aabb.partition();
+
+        assert_eq!(
+            partition.tfl,
+            AABB::new(Point3f::new(-1.0, 0.0, 0.0), Point3f::new(0.0, 1.0, 1.0))
+        );
+        assert_eq!(
+            partition.tfr,
+            AABB::new(Point3f::new(0.0, 0.0, 0.0), Point3f::new(1.0, 1.0, 1.0))
+        );
+        assert_eq!(
+            partition.tbl,
+            AABB::new(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0))
+        );
+        assert_eq!(
+            partition.tbr,
+            AABB::new(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0))
+        );
+
+        assert_eq!(
+            partition.bfl,
+            AABB::new(Point3f::new(-1.0, -1.0, 0.0), Point3f::new(0.0, 0.0, 1.0))
+        );
+        assert_eq!(
+            partition.bfr,
+            AABB::new(Point3f::new(0.0, -1.0, 0.0), Point3f::new(1.0, 0.0, 1.0))
+        );
+        assert_eq!(
+            partition.bbl,
+            AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(0.0, 0.0, 0.0))
+        );
+        assert_eq!(
+            partition.bbr,
+            AABB::new(Point3f::new(0.0, -1.0, -1.0), Point3f::new(1.0, 0.0, 0.0))
+        );
     }
 }
