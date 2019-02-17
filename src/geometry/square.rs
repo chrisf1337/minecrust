@@ -36,7 +36,6 @@ mod tests {
     use super::*;
     use crate::na::geometry::Isometry;
     use crate::na::{Rotation3, Translation3};
-    use crate::types::prelude::*;
     use alga::general::SubsetOf;
 
     #[test]

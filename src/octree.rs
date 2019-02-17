@@ -1,10 +1,9 @@
 use crate::{
-    ecs::{entity::Entity, AABBComponent, PrimitiveGeometryComponent, TransformComponent},
+    ecs::{entity::Entity, AABBComponent, TransformComponent},
     geometry::{Axis, Ray, AABB, AAP},
     types::prelude::*,
     utils::f32,
 };
-use num_traits::identities::Zero;
 use specs::ReadStorage;
 use std::ops::Index;
 
@@ -561,7 +560,7 @@ fn partition_entities(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::prelude::*;
+    use crate::ecs::PrimitiveGeometryComponent;
     use alga::general::SubsetOf;
     use specs::World;
 
@@ -1107,13 +1106,20 @@ mod tests {
         let (_, entity) = bvh
             ._intersected_entity(&ray, &world.read_storage())
             .unwrap();
-        println!("{}", entity.position(&world.read_storage()));
         assert!(ray
             .intersect_entity(entity, &world.read_storage())
             .is_some());
         assert!(entity
             .position(&world.read_storage())
             .almost_eq(&Point3f::new(1.0, 0.0, 2.0)));
+
+        let ray = Ray::new(Point3f::new(1.0, 1.0, 1.0), Vector3f::new(1.2, -2.3, 4.5));
+        let (_, entity) = bvh
+            ._intersected_entity(&ray, &world.read_storage())
+            .unwrap();
+        assert!(entity
+            .position(&world.read_storage())
+            .almost_eq(&Point3f::new(1.0, 1.0, 1.0)));
     }
 
     #[test]

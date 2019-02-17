@@ -60,7 +60,7 @@ impl Camera {
     }
 
     pub fn rotate(&mut self, (d_yaw, d_pitch): (f32, f32)) {
-        let (mut pitch, _, _) = self.pitch_q.to_euler_angles();
+        let (mut pitch, _, _) = self.pitch_q.euler_angles();
         pitch += d_pitch;
         if pitch > FRAC_PI_2 - 0.001 {
             pitch = FRAC_PI_2 - 0.001;

@@ -115,10 +115,7 @@ impl Ray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ecs::{AABBComponent, PrimitiveGeometryComponent, TransformComponent},
-        types::prelude::*,
-    };
+    use crate::ecs::{AABBComponent, PrimitiveGeometryComponent, TransformComponent};
     use specs::World;
 
     #[test]

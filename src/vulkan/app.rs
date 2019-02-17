@@ -1922,8 +1922,8 @@ impl VulkanApp {
         let image_ci = vk::ImageCreateInfo::builder()
             .image_type(vk::ImageType::TYPE_2D)
             .extent(vk::Extent3D {
-                width: width,
-                height: height,
+                width,
+                height,
                 depth: 1,
             })
             .mip_levels(mip_levels)
