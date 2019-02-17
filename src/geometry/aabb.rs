@@ -15,15 +15,15 @@ pub enum Face {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct OctPartition {
-    tfr: AABB,
-    tfl: AABB,
-    tbr: AABB,
-    tbl: AABB,
-    bfr: AABB,
-    bfl: AABB,
-    bbr: AABB,
-    bbl: AABB,
+pub struct Octants {
+    pub tfr: AABB,
+    pub tfl: AABB,
+    pub tbr: AABB,
+    pub tbl: AABB,
+    pub bfr: AABB,
+    pub bfl: AABB,
+    pub bbr: AABB,
+    pub bbl: AABB,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -40,7 +40,7 @@ impl AABB {
         }
     }
 
-    fn _merge_two_aabbs(a: &AABB, b: &AABB) -> AABB {
+    fn merge_two_aabbs(a: &AABB, b: &AABB) -> AABB {
         AABB {
             min: point3f::min(&a.min, &b.min),
             max: point3f::max(&a.max, &b.max),
@@ -53,7 +53,7 @@ impl AABB {
         } else {
             let mut aabb = aabbs[0];
             for bb in &aabbs[0..] {
-                aabb = AABB::_merge_two_aabbs(&aabb, bb);
+                aabb = AABB::merge_two_aabbs(&aabb, bb);
             }
             aabb
         }
@@ -105,12 +105,16 @@ impl AABB {
         self.min.is_infinite() || self.max.is_infinite()
     }
 
-    pub fn partition(&self) -> OctPartition {
+    pub fn center(&self) -> Point3f {
+        point3f::midpoint(&self.min, &self.max)
+    }
+
+    pub fn partition(&self) -> Octants {
         if self.is_infinite() {
             panic!("{:?} is infinite", self);
         }
-        let center = point3f::mean(&self.min, &self.max);
-        OctPartition {
+        let center = self.center();
+        Octants {
             tfl: AABB::new(
                 Point3f::new(self.min.x, center.y, center.z),
                 Point3f::new(center.x, self.max.y, self.max.z),

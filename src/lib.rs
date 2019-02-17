@@ -1,7 +1,11 @@
 #![feature(custom_attribute, try_trait)]
 #![allow(unknown_lints)]
 #![warn(clippy::all)]
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::cyclomatic_complexity
+)]
 
 use nalgebra as na;
 

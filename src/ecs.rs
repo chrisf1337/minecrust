@@ -146,7 +146,7 @@ impl<'a> System<'a> for SelectionSystem {
         let ray = Ray::new(camera.pos, camera.direction().unwrap());
         let mut new_selected: Option<(f32, Entity)> = None;
         for (entity, aabb) in (&entities, &aabb_storage).join() {
-            if let Some((t, _)) = ray.intersect_aabb_t(&aabb.0) {
+            if let Some((t, _)) = ray.intersect_aabb(&aabb.0) {
                 if let Some((intersect_t, _)) = new_selected {
                     if t < intersect_t {
                         new_selected = Some((t, entity));

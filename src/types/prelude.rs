@@ -1,4 +1,4 @@
-pub use crate::na::Translation3;
+pub use crate::na::{Translation3, Unit};
 pub use crate::types::{
     f32ext::F32Ext,
     matrix3fext::Matrix3fExt,

@@ -16,7 +16,7 @@ pub fn max(p1: &Point3f, p2: &Point3f) -> Point3f {
     )
 }
 
-pub fn mean(p1: &Point3f, p2: &Point3f) -> Point3f {
+pub fn midpoint(p1: &Point3f, p2: &Point3f) -> Point3f {
     Point3f::new(
         f32::mean(&[p1.x, p2.x]),
         f32::mean(&[p1.y, p2.y]),

@@ -9,19 +9,22 @@ use std::{f32, mem};
 #[derive(Debug, Copy, Clone)]
 pub struct Ray {
     pub origin: Point3f,
-    pub direction: Vector3f,
+    pub direction: Unit<Vector3f>,
 }
 
 impl Ray {
     pub fn new(origin: Point3f, direction: Vector3f) -> Ray {
-        Ray { origin, direction }
+        Ray {
+            origin,
+            direction: Unit::new_normalize(direction),
+        }
     }
 
     pub fn at(&self, t: f32) -> Point3f {
-        self.origin + t * self.direction
+        self.origin + t * self.direction.as_ref()
     }
 
-    pub fn intersect_aabb_t(&self, aabb: &AABB) -> Option<(f32, Point3f)> {
+    pub fn intersect_aabb(&self, aabb: &AABB) -> Option<(f32, Point3f)> {
         let min = aabb.min;
         let max = aabb.max;
 
@@ -64,33 +67,32 @@ impl Ray {
         }
     }
 
-    pub fn intersect_aabb(&self, aabb: &AABB) -> Option<Point3f> {
-        self.intersect_aabb_t(aabb).map(|(_, p)| p)
-    }
-
-    pub fn intersect_aabbs(&self, aabbs: &[AABB]) -> Option<(usize, Point3f)> {
-        let mut aabbs: Vec<_> = aabbs
+    pub fn intersect_aabbs(&self, aabbs: &[AABB]) -> Option<(usize, (f32, Point3f))> {
+        let aabb = aabbs
             .iter()
-            .filter_map(|bb| self.intersect_aabb_t(bb))
             .enumerate()
-            .collect();
-        aabbs.sort_unstable_by(|(_, (t1, _)), (_, (t2, _))| t1.partial_cmp(t2).unwrap());
-        aabbs.get(0).map(|(i, (_, p))| (*i, *p))
+            .filter_map(|(i, bb)| {
+                // println!("center {:?}", bb.center());
+                // println!("{:?}", self);
+                self.intersect_aabb(bb).map(|r| (i, r))
+            })
+            .min_by(|(_, (t1, _)), (_, (t2, _))| t1.partial_cmp(t2).unwrap())?;
+        Some(aabb)
     }
 
-    pub fn intersect_entity_t(
+    pub fn intersect_entity(
         &self,
         entity: Entity,
         storage: &ReadStorage<AABBComponent>,
     ) -> Option<(f32, Point3f)> {
-        self.intersect_aabb_t(entity.aabb(storage))
+        self.intersect_aabb(entity.aabb(storage))
     }
 
     pub fn intersect_entities(
         &self,
         entities: &[Entity],
         storage: &ReadStorage<AABBComponent>,
-    ) -> Option<(usize, Point3f)> {
+    ) -> Option<(usize, (f32, Point3f))> {
         self.intersect_aabbs(
             &entities
                 .iter()
@@ -98,12 +100,26 @@ impl Ray {
                 .collect::<Vec<_>>(),
         )
     }
+
+    pub fn closest_entity(
+        &self,
+        entities: &[Entity],
+        storage: &ReadStorage<AABBComponent>,
+    ) -> Option<(f32, Entity)> {
+        let (i, (t, _)) = self.intersect_entities(entities, storage)?;
+        assert!(self.intersect_entity(entities[i], storage).is_some());
+        Some((t, entities[i]))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::prelude::*;
+    use crate::{
+        ecs::{AABBComponent, PrimitiveGeometryComponent, TransformComponent},
+        types::prelude::*,
+    };
+    use specs::World;
 
     #[test]
     fn test_intersect1() {
@@ -113,7 +129,27 @@ mod tests {
         assert!(intersection.is_some());
         assert!(intersection
             .unwrap()
+            .1
             .almost_eq(&Point3f::new(1.0, 0.0, 0.0)));
+
+        let r = Ray::new(Point3f::origin(), Vector3f::new(1.0, 1.0, 0.0));
+        let intersection = r.intersect_aabb(&aabb);
+        assert!(intersection.is_some());
+        assert!(intersection
+            .unwrap()
+            .1
+            .almost_eq(&Point3f::new(1.0, 1.0, 0.0)));
+
+        let r = Ray::new(
+            Point3f::new(0.0, 10.0, 10.0),
+            Vector3f::new(0.0, -1.0, -1.0),
+        );
+        let intersection = r.intersect_aabb(&aabb);
+        assert!(intersection.is_some());
+        assert!(intersection
+            .unwrap()
+            .1
+            .almost_eq(&Point3f::new(0.0, 1.0, 1.0)));
     }
 
     #[test]
@@ -125,7 +161,21 @@ mod tests {
         println!("{:?}", intersection);
         assert!(intersection
             .unwrap()
+            .1
             .almost_eq(&Point3f::new(0.0, -0.5, 1.0)));
+    }
+
+    #[test]
+    fn test_intersect3() {
+        let ray = Ray::new(
+            Point3f::new(10.0, 10.0, 10.0),
+            Vector3f::new(-1.0, -1.0, -1.0),
+        );
+        let intersection = ray.intersect_aabbs(&[AABB::new(
+            Point3f::new(3.0, 3.0, 3.0),
+            Point3f::new(4.0, 4.0, 4.0),
+        )]);
+        println!("{:#?}", intersection);
     }
 
     #[test]
@@ -165,6 +215,36 @@ mod tests {
                 AABB::new(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ]),
             None
+        );
+    }
+
+    #[test]
+    fn test_closest_entity() {
+        let mut world = World::new();
+        world.register::<TransformComponent>();
+        world.register::<AABBComponent>();
+        world.register::<PrimitiveGeometryComponent>();
+
+        let r = Ray::new(Point3f::origin(), Vector3f::x());
+        let entities = vec![
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(2.0, 0.0, 0.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(1.0, 0.0, 0.0)),
+                &world,
+            ),
+            Entity::new_unitcube_w(
+                Transform3f::new_with_translation(Vector3f::new(3.0, 0.0, 0.0)),
+                &world,
+            ),
+        ];
+        assert_eq!(
+            r.closest_entity(&entities, &world.read_storage())
+                .unwrap()
+                .1,
+            entities[1]
         );
     }
 }
