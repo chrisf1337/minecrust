@@ -166,4 +166,8 @@ impl Entity {
     pub fn position(&self, storage: &ReadStorage<TransformComponent>) -> Point3f {
         self.transform(storage).translation()
     }
+
+    pub fn position_aabb(&self, storage: &ReadStorage<AABBComponent>) -> Point3f {
+        self.aabb(storage).center()
+    }
 }

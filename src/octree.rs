@@ -68,6 +68,28 @@ impl Index<NodeOctantIndex> for NodeOctants {
     }
 }
 
+impl IndexMut<usize> for NodeOctants {
+    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
+        match i {
+            0 => &mut self.bbl,
+            1 => &mut self.bfl,
+            2 => &mut self.tbl,
+            3 => &mut self.tfl,
+            4 => &mut self.bbr,
+            5 => &mut self.bfr,
+            6 => &mut self.tbr,
+            7 => &mut self.tfr,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl IndexMut<NodeOctantIndex> for NodeOctants {
+    fn index_mut(&mut self, i: NodeOctantIndex) -> &mut Self::Output {
+        &mut self[i as usize]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     aabb: AABB,
@@ -87,22 +109,14 @@ impl Node {
     pub fn new_from_entities(
         entities: &[Entity],
         aabb: AABB,
-        transform_storage: &ReadStorage<TransformComponent>,
         aabb_storage: &ReadStorage<AABBComponent>,
     ) -> Node {
-        Node::_new_from_entities(
-            entities,
-            aabb,
-            transform_storage,
-            aabb_storage,
-            TERMINAL_NODE_MAX_SIZE,
-        )
+        Node::_new_from_entities(entities, aabb, aabb_storage, TERMINAL_NODE_MAX_SIZE)
     }
 
     fn _new_from_entities(
         entities: &[Entity],
         aabb: AABB,
-        transform_storage: &ReadStorage<TransformComponent>,
         aabb_storage: &ReadStorage<AABBComponent>,
         child_node_max_size: usize,
     ) -> Node {
@@ -120,78 +134,11 @@ impl Node {
                 entities: entities.to_vec(),
             };
         }
-        let (node_entities, octants) =
-            partition_entities(entities, &aabb.center(), transform_storage, aabb_storage);
-        let aabb_octants = aabb.partition();
-        let tfl = Box::new(Node::_new_from_entities(
-            &octants.tfl,
-            aabb_octants.tfl,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-        let tfr = Box::new(Node::_new_from_entities(
-            &octants.tfr,
-            aabb_octants.tfr,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-        let tbl = Box::new(Node::_new_from_entities(
-            &octants.tbl,
-            aabb_octants.tbl,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-        let tbr = Box::new(Node::_new_from_entities(
-            &octants.tbr,
-            aabb_octants.tbr,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-
-        let bfl = Box::new(Node::_new_from_entities(
-            &octants.bfl,
-            aabb_octants.bfl,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-        let bfr = Box::new(Node::_new_from_entities(
-            &octants.bfr,
-            aabb_octants.bfr,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-        let bbl = Box::new(Node::_new_from_entities(
-            &octants.bbl,
-            aabb_octants.bbl,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
-        let bbr = Box::new(Node::_new_from_entities(
-            &octants.bbr,
-            aabb_octants.bbr,
-            transform_storage,
-            aabb_storage,
-            child_node_max_size,
-        ));
+        let (node_entities, children) =
+            partition_children(entities, &aabb, aabb_storage, child_node_max_size);
         Node {
             aabb,
-            children: Some(NodeOctants {
-                tfl,
-                tfr,
-                tbl,
-                tbr,
-                bfl,
-                bfr,
-                bbl,
-                bbr,
-            }),
+            children: Some(children),
             entities: node_entities,
         }
     }
@@ -488,11 +435,30 @@ impl Node {
         choose_entity(entity, entity_candidate)
     }
 
-    pub fn insert(&mut self, entity: Entity) {
+    pub fn insert(&mut self, entity: Entity, aabb_storage: &ReadStorage<AABBComponent>) {
         if self.is_terminal() {
-
+            if self.entities.len() >= TERMINAL_NODE_MAX_SIZE {
+                let (node_entities, children) = partition_children(
+                    &self.entities,
+                    &self.aabb,
+                    aabb_storage,
+                    TERMINAL_NODE_MAX_SIZE,
+                );
+                self.entities = node_entities;
+                self.children = Some(children);
+            } else {
+                self.entities.push(entity);
+            }
         } else {
-
+            let oct_idx = octant_index(&(self.aabb.center() - entity.aabb(&aabb_storage).center()));
+            let mut parent = self;
+            let mut child = &mut parent.children.as_mut().unwrap()[oct_idx];
+            while !child.is_terminal() {
+                parent = child;
+                let oct_idx =
+                    octant_index(&(parent.aabb.center() - entity.aabb(&aabb_storage).center()));
+                child = &mut parent.children.as_mut().unwrap()[oct_idx];
+            }
         }
     }
 }
@@ -645,7 +611,6 @@ fn octant_index(v: &Vector3f) -> NodeOctantIndex {
 fn partition_entities(
     entities: &[Entity],
     point: &Point3f,
-    transform_storage: &ReadStorage<TransformComponent>,
     aabb_storage: &ReadStorage<AABBComponent>,
 ) -> (Vec<Entity>, Octants) {
     let x_plane = AAP::new(Axis::X, point.x);
@@ -661,10 +626,82 @@ fn partition_entities(
         {
             node_entities.push(entity);
         } else {
-            oct_partition[octant_index(&(entity.position(transform_storage) - point))].push(entity);
+            oct_partition[octant_index(&(entity.position_aabb(aabb_storage) - point))].push(entity);
         }
     }
     (node_entities, oct_partition)
+}
+
+fn partition_children(
+    entities: &[Entity],
+    aabb: &AABB,
+    aabb_storage: &ReadStorage<AABBComponent>,
+    child_node_max_size: usize,
+) -> (Vec<Entity>, NodeOctants) {
+    let (node_entities, octants) = partition_entities(entities, &aabb.center(), aabb_storage);
+    let aabb_octants = aabb.partition();
+    let tfl = Box::new(Node::_new_from_entities(
+        &octants.tfl,
+        aabb_octants.tfl,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    let tfr = Box::new(Node::_new_from_entities(
+        &octants.tfr,
+        aabb_octants.tfr,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    let tbl = Box::new(Node::_new_from_entities(
+        &octants.tbl,
+        aabb_octants.tbl,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    let tbr = Box::new(Node::_new_from_entities(
+        &octants.tbr,
+        aabb_octants.tbr,
+        aabb_storage,
+        child_node_max_size,
+    ));
+
+    let bfl = Box::new(Node::_new_from_entities(
+        &octants.bfl,
+        aabb_octants.bfl,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    let bfr = Box::new(Node::_new_from_entities(
+        &octants.bfr,
+        aabb_octants.bfr,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    let bbl = Box::new(Node::_new_from_entities(
+        &octants.bbl,
+        aabb_octants.bbl,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    let bbr = Box::new(Node::_new_from_entities(
+        &octants.bbr,
+        aabb_octants.bbr,
+        aabb_storage,
+        child_node_max_size,
+    ));
+    (
+        node_entities,
+        NodeOctants {
+            tfl,
+            tfr,
+            tbl,
+            tbr,
+            bfl,
+            bfr,
+            bbl,
+            bbr,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1056,12 +1093,8 @@ mod tests {
             ),
         ];
 
-        let (node_entities, partition) = partition_entities(
-            &entities,
-            &Point3f::origin(),
-            &world.read_storage(),
-            &world.read_storage(),
-        );
+        let (node_entities, partition) =
+            partition_entities(&entities, &Point3f::origin(), &world.read_storage());
         let storage = world.read_storage();
         assert_eq!(
             *partition.tfr[0].transform(&storage),
@@ -1123,7 +1156,6 @@ mod tests {
         let (node_entities, partition) = partition_entities(
             &entities,
             &Point3f::new(0.0, 0.0, 0.0),
-            &world.read_storage(),
             &world.read_storage(),
         );
         for i in -1..=1 {
@@ -1208,7 +1240,6 @@ mod tests {
                     .map(|e| *e.aabb(&world.read_storage()))
                     .collect::<Vec<AABB>>(),
             ),
-            &world.read_storage(),
             &world.read_storage(),
             2,
         );
@@ -1315,13 +1346,7 @@ mod tests {
                 .map(|e| *e.aabb(&world.read_storage()))
                 .collect::<Vec<AABB>>(),
         );
-        let bvh = Node::_new_from_entities(
-            &entities,
-            aabb,
-            &world.read_storage(),
-            &world.read_storage(),
-            8,
-        );
+        let bvh = Node::_new_from_entities(&entities, aabb, &world.read_storage(), 8);
         let entity = bvh._intersected_entity(
             &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
             &world.read_storage(),
