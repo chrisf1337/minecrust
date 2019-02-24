@@ -143,6 +143,15 @@ impl AABB {
             ),
         }
     }
+
+    pub fn contains(&self, point: &Point3f) -> bool {
+        self.min.x <= point.x
+            && self.min.y <= point.y
+            && self.min.z <= point.z
+            && point.x < self.max.x
+            && point.y < self.max.y
+            && point.z < self.max.z
+    }
 }
 
 #[cfg(test)]

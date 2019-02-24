@@ -160,6 +160,55 @@ impl<'a> System<'a> for SelectionSystem {
     }
 }
 
+pub struct OctreeSystem {
+    reader_id: ReaderId<ComponentEvent>,
+    inserted: BitSet,
+    modified: BitSet,
+}
+
+impl OctreeSystem {
+    pub fn new(
+        reader_id: ReaderId<ComponentEvent>,
+        inserted: BitSet,
+        modified: BitSet,
+    ) -> OctreeSystem {
+        OctreeSystem {
+            reader_id,
+            inserted,
+            modified,
+        }
+    }
+}
+
+impl<'a> System<'a> for OctreeSystem {
+    type SystemData = (
+        Entities<'a>,
+        ReadStorage<'a, AABBComponent>,
+        WriteExpect<'a, GameState>,
+    );
+
+    fn run(&mut self, (entities, aabb_storage, mut game_state): Self::SystemData) {
+        self.inserted.clear();
+        self.modified.clear();
+
+        let events = aabb_storage.channel().read(&mut self.reader_id);
+        for event in events {
+            match event {
+                ComponentEvent::Inserted(id) => {
+                    self.inserted.add(*id);
+                }
+                ComponentEvent::Modified(id) => {
+                    self.modified.add(*id);
+                }
+                _ => (),
+            }
+        }
+
+        let octree = &mut game_state.octree;
+        for (entity, aabb, _) in (&entities, &aabb_storage, &self.inserted).join() {}
+    }
+}
+
 pub struct RenderSystem {
     pub renderer: Rc<RefCell<Renderer>>,
 }
@@ -185,6 +234,7 @@ impl<'a> System<'a> for RenderSystem {
             ref mut fps_last_sampled_time,
             ref mut fps_sample,
             ref selected,
+            ..
         } = game_state;
 
         let elapsed_time = *elapsed_time;

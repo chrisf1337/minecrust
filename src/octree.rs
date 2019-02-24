@@ -5,9 +5,9 @@ use crate::{
     utils::f32,
 };
 use specs::ReadStorage;
-use std::ops::Index;
+use std::ops::{Index, IndexMut};
 
-const CHILD_NODE_MAX_SIZE: usize = 8;
+const TERMINAL_NODE_MAX_SIZE: usize = 8;
 
 #[derive(Clone, Debug)]
 struct NodeOctants {
@@ -30,6 +30,18 @@ struct NodeOctants {
     bbr: Box<Node>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeOctantIndex {
+    Tfl = 3,
+    Tfr = 7,
+    Tbl = 2,
+    Tbr = 6,
+    Bfl = 1,
+    Bfr = 5,
+    Bbl = 0,
+    Bbr = 4,
+}
+
 impl Index<usize> for NodeOctants {
     type Output = Box<Node>;
 
@@ -48,14 +60,45 @@ impl Index<usize> for NodeOctants {
     }
 }
 
+impl Index<NodeOctantIndex> for NodeOctants {
+    type Output = Box<Node>;
+
+    fn index(&self, i: NodeOctantIndex) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+
 #[derive(Debug, Clone)]
-struct Node {
+pub struct Node {
     aabb: AABB,
     children: Option<NodeOctants>,
     entities: Vec<Entity>,
 }
 
 impl Node {
+    pub fn empty(aabb: AABB) -> Node {
+        Node {
+            aabb,
+            children: None,
+            entities: vec![],
+        }
+    }
+
+    pub fn new_from_entities(
+        entities: &[Entity],
+        aabb: AABB,
+        transform_storage: &ReadStorage<TransformComponent>,
+        aabb_storage: &ReadStorage<AABBComponent>,
+    ) -> Node {
+        Node::_new_from_entities(
+            entities,
+            aabb,
+            transform_storage,
+            aabb_storage,
+            TERMINAL_NODE_MAX_SIZE,
+        )
+    }
+
     fn _new_from_entities(
         entities: &[Entity],
         aabb: AABB,
@@ -155,6 +198,14 @@ impl Node {
 
     fn is_terminal(&self) -> bool {
         self.children.is_none()
+    }
+
+    pub fn intersect_entity(
+        &self,
+        ray: &Ray,
+        aabb_storage: &ReadStorage<AABBComponent>,
+    ) -> Option<Entity> {
+        self._intersected_entity(ray, aabb_storage).map(|x| x.1)
     }
 
     fn _intersected_entity(
@@ -436,6 +487,14 @@ impl Node {
         }
         choose_entity(entity, entity_candidate)
     }
+
+    pub fn insert(&mut self, entity: Entity) {
+        if self.is_terminal() {
+
+        } else {
+
+        }
+    }
 }
 
 fn first_node((tx0, ty0, tz0): (f32, f32, f32), (txm, tym, tzm): (f32, f32, f32)) -> usize {
@@ -509,6 +568,80 @@ impl PartialEq for Octants {
 
 impl Eq for Octants {}
 
+impl Index<usize> for Octants {
+    type Output = Vec<Entity>;
+
+    fn index(&self, i: usize) -> &Self::Output {
+        match i {
+            0 => &self.bbl,
+            1 => &self.bfl,
+            2 => &self.tbl,
+            3 => &self.tfl,
+            4 => &self.bbr,
+            5 => &self.bfr,
+            6 => &self.tbr,
+            7 => &self.tfr,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Index<NodeOctantIndex> for Octants {
+    type Output = Vec<Entity>;
+
+    fn index(&self, i: NodeOctantIndex) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+
+impl IndexMut<usize> for Octants {
+    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
+        match i {
+            0 => &mut self.bbl,
+            1 => &mut self.bfl,
+            2 => &mut self.tbl,
+            3 => &mut self.tfl,
+            4 => &mut self.bbr,
+            5 => &mut self.bfr,
+            6 => &mut self.tbr,
+            7 => &mut self.tfr,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl IndexMut<NodeOctantIndex> for Octants {
+    fn index_mut(&mut self, i: NodeOctantIndex) -> &mut Self::Output {
+        &mut self[i as usize]
+    }
+}
+
+fn octant_index(v: &Vector3f) -> NodeOctantIndex {
+    if v.x >= 0.0 {
+        if v.y >= 0.0 {
+            if v.z >= 0.0 {
+                NodeOctantIndex::Tfr
+            } else {
+                NodeOctantIndex::Tbr
+            }
+        } else if v.z >= 0.0 {
+            NodeOctantIndex::Bfr
+        } else {
+            NodeOctantIndex::Bbr
+        }
+    } else if v.y >= 0.0 {
+        if v.z >= 0.0 {
+            NodeOctantIndex::Tfl
+        } else {
+            NodeOctantIndex::Tbl
+        }
+    } else if v.z >= 0.0 {
+        NodeOctantIndex::Bfl
+    } else {
+        NodeOctantIndex::Bbl
+    }
+}
+
 fn partition_entities(
     entities: &[Entity],
     point: &Point3f,
@@ -528,30 +661,7 @@ fn partition_entities(
         {
             node_entities.push(entity);
         } else {
-            let v = entity.position(transform_storage) - point;
-            if v.x >= 0.0 {
-                if v.y >= 0.0 {
-                    if v.z >= 0.0 {
-                        oct_partition.tfr.push(entity);
-                    } else {
-                        oct_partition.tbr.push(entity);
-                    }
-                } else if v.z >= 0.0 {
-                    oct_partition.bfr.push(entity);
-                } else {
-                    oct_partition.bbr.push(entity);
-                }
-            } else if v.y >= 0.0 {
-                if v.z >= 0.0 {
-                    oct_partition.tfl.push(entity);
-                } else {
-                    oct_partition.tbl.push(entity);
-                }
-            } else if v.z >= 0.0 {
-                oct_partition.bfl.push(entity);
-            } else {
-                oct_partition.bbl.push(entity);
-            }
+            oct_partition[octant_index(&(entity.position(transform_storage) - point))].push(entity);
         }
     }
     (node_entities, oct_partition)

@@ -1,12 +1,13 @@
 use crate::{
     camera::{Camera, CameraAnimation},
     ecs::{
-        AABBComponent, AABBComponentSystem, PrimitiveGeometryComponent, RenderSystem,
+        AABBComponent, AABBComponentSystem, OctreeSystem, PrimitiveGeometryComponent, RenderSystem,
         SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{Square, UnitCube},
+    geometry::{Square, UnitCube, AABB},
     na::Translation3,
+    octree,
     renderer::Renderer,
     types::prelude::*,
     utils::NSEC_PER_SEC,
@@ -41,6 +42,7 @@ pub struct GameState {
     pub fps_sample: f32,
     pub camera_animation: Option<CameraAnimation>,
     pub selected: Option<Entity>,
+    pub octree: octree::Node,
 }
 
 pub struct Game<'a, 'b> {
@@ -72,6 +74,10 @@ impl<'a, 'b> Game<'a, 'b> {
             // camera_animation: Some(camera_animation),
             camera_animation: None,
             selected: None,
+            octree: octree::Node::empty(AABB::new(
+                Point3f::new(-50.0, -50.0, -50.0),
+                Point3f::new(50.0, 50.0, 50.0),
+            )),
         };
         let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
 
@@ -82,18 +88,25 @@ impl<'a, 'b> Game<'a, 'b> {
         world.add_resource(state);
 
         let dispatcher = {
-            let mut transform_components = world.write_storage::<TransformComponent>();
+            let mut transform_storage = world.write_storage::<TransformComponent>();
+            let mut aabb_storage = world.write_storage::<AABBComponent>();
+
             DispatcherBuilder::new()
                 .with(
                     AABBComponentSystem::new(
-                        transform_components.register_reader(),
+                        transform_storage.register_reader(),
                         BitSet::new(),
                         BitSet::new(),
                     ),
                     "AABBComponentSystem",
                     &[],
                 )
-                .with(SelectionSystem, "SelectionSystem", &["AABBComponentSystem"])
+                .with(
+                    OctreeSystem::new(aabb_storage.register_reader(), BitSet::new(), BitSet::new()),
+                    "OctreeSystem",
+                    &["AABBComponentSystem"],
+                )
+                .with(SelectionSystem, "SelectionSystem", &["OctreeSystem"])
                 .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),
                 })
