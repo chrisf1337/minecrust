@@ -12,7 +12,10 @@ pub use self::{app::VulkanApp, vertex::Vertex3f};
 
 use self::error::{from_vk_result, VulkanError, VulkanResult};
 use ash::{
-    extensions::{DebugUtils, Surface, Swapchain, Win32Surface},
+    extensions::{
+        ext::DebugUtils,
+        khr::{Surface, Swapchain, Win32Surface},
+    },
     prelude::VkResult,
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
     vk, vk_make_version, Entry, Instance,
@@ -220,7 +223,7 @@ impl Drop for VulkanCore {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_device(None);
-            self.surface.destroy_surface_khr(self.surface_handle, None);
+            self.surface.destroy_surface(self.surface_handle, None);
             destroy_debug_utils_messenger_ext(
                 &self.entry,
                 self.instance.handle(),
@@ -295,7 +298,7 @@ unsafe fn create_surface<E: EntryV1_0, I: InstanceV1_0>(
         hwnd: hwnd as *const c_void,
     };
     let win32_surface = Win32Surface::new(entry, instance);
-    win32_surface.create_win32_surface_khr(&win32_create_info, None)
+    win32_surface.create_win32_surface(&win32_create_info, None)
 }
 
 /// Returns (physical_device, graphics queue, transfer queue)
@@ -316,7 +319,7 @@ unsafe fn find_queue_families(
                 && queue_family_properties
                     .queue_flags
                     .contains(vk::QueueFlags::GRAPHICS)
-                && surface.get_physical_device_surface_support_khr(pd, index as u32, surface_handle)
+                && surface.get_physical_device_surface_support(pd, index as u32, surface_handle)
             {
                 graphics_queue_family_index = Some(index as u32);
             } else if transfer_queue_family_index.is_none()

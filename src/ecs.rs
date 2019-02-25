@@ -143,7 +143,7 @@ impl<'a> System<'a> for SelectionSystem {
             ..
         } = game_state;
 
-        let ray = Ray::new(camera.pos, camera.direction().unwrap());
+        let ray = Ray::new(camera.pos, camera.direction().into_inner());
         let mut new_selected: Option<(f32, Entity)> = None;
         for (entity, aabb) in (&entities, &aabb_storage).join() {
             if let Some((t, _)) = ray.intersect_aabb(&aabb.0) {
@@ -266,8 +266,8 @@ impl<'a> System<'a> for RenderSystem {
         let camera_speed = 3.0 * frame_time;
         for keycode in pressed_keys.keys() {
             match keycode {
-                VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().unwrap(),
-                VirtualKeyCode::S => camera.pos -= camera_speed * camera.direction().unwrap(),
+                VirtualKeyCode::W => camera.pos += camera_speed * camera.direction().into_inner(),
+                VirtualKeyCode::S => camera.pos -= camera_speed * camera.direction().into_inner(),
                 VirtualKeyCode::A => {
                     let delta = camera_speed * (Vector3f::cross(&camera.direction(), &camera.up()));
                     camera.pos -= delta;

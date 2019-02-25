@@ -595,7 +595,7 @@ impl VulkanApp {
         screen_width: u32,
         screen_height: u32,
     ) -> VulkanResult<()> {
-        let surface_formats = self.core.surface.get_physical_device_surface_formats_khr(
+        let surface_formats = self.core.surface.get_physical_device_surface_formats(
             self.core.physical_device,
             self.core.surface_handle,
         )?;
@@ -611,13 +611,10 @@ impl VulkanApp {
             .nth(0)
             .expect("Unable to find suitable surface format");
 
-        let surface_capabilities = self
-            .core
-            .surface
-            .get_physical_device_surface_capabilities_khr(
-                self.core.physical_device,
-                self.core.surface_handle,
-            )?;
+        let surface_capabilities = self.core.surface.get_physical_device_surface_capabilities(
+            self.core.physical_device,
+            self.core.surface_handle,
+        )?;
 
         self.swapchain_extent =
             Self::choose_swapchain_extent(surface_capabilities, screen_width, screen_height);
@@ -639,7 +636,7 @@ impl VulkanApp {
         let present_modes = self
             .core
             .surface
-            .get_physical_device_surface_present_modes_khr(
+            .get_physical_device_surface_present_modes(
                 self.core.physical_device,
                 self.core.surface_handle,
             )?;
@@ -664,14 +661,11 @@ impl VulkanApp {
             .old_swapchain(vk::SwapchainKHR::null())
             .image_array_layers(1)
             .build();
-        self.swapchain_handle = self
-            .core
-            .swapchain
-            .create_swapchain_khr(&swapchain_ci, None)?;
+        self.swapchain_handle = self.core.swapchain.create_swapchain(&swapchain_ci, None)?;
         self.swapchain_images = self
             .core
             .swapchain
-            .get_swapchain_images_khr(self.swapchain_handle)?;
+            .get_swapchain_images(self.swapchain_handle)?;
         self.swapchain_image_views.clear();
         for &swapchain_image in &self.swapchain_images {
             self.swapchain_image_views.push(self.create_image_view(
@@ -2787,7 +2781,7 @@ impl VulkanApp {
         }
         self.core
             .swapchain
-            .destroy_swapchain_khr(self.swapchain_handle, None);
+            .destroy_swapchain(self.swapchain_handle, None);
     }
 }
 
@@ -2909,7 +2903,7 @@ impl Renderer for VulkanApp {
                 return Ok(());
             }
 
-            match self.core.swapchain.acquire_next_image_khr(
+            match self.core.swapchain.acquire_next_image(
                 self.swapchain_handle,
                 std::u64::MAX,
                 self.image_available_semaphores[self.current_frame],
@@ -3032,7 +3026,7 @@ impl Renderer for VulkanApp {
                     match self
                         .core
                         .swapchain
-                        .queue_present_khr(self.core.graphics_queue, &present_info)
+                        .queue_present(self.core.graphics_queue, &present_info)
                     {
                         Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                             self.recreate_swapchain()?
