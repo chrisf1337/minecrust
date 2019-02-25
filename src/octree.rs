@@ -152,10 +152,10 @@ impl Node {
         ray: &Ray,
         aabb_storage: &ReadStorage<AABBComponent>,
     ) -> Option<Entity> {
-        self._intersected_entity(ray, aabb_storage).map(|x| x.1)
+        self._intersect_entity(ray, aabb_storage).map(|x| x.1)
     }
 
-    fn _intersected_entity(
+    fn _intersect_entity(
         &self,
         ray: &Ray,
         aabb_storage: &ReadStorage<AABBComponent>,
@@ -709,6 +709,10 @@ mod tests {
     use super::*;
     use crate::ecs::PrimitiveGeometryComponent;
     use alga::general::SubsetOf;
+    use rand::{
+        distributions::{Distribution, Uniform},
+        Rng,
+    };
     use specs::World;
 
     struct RayIntersectionParams {
@@ -1244,9 +1248,7 @@ mod tests {
             2,
         );
         let ray = Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z());
-        let (_, entity) = bvh
-            ._intersected_entity(&ray, &world.read_storage())
-            .unwrap();
+        let (_, entity) = bvh._intersect_entity(&ray, &world.read_storage()).unwrap();
         assert!(ray
             .intersect_entity(entity, &world.read_storage())
             .is_some());
@@ -1255,9 +1257,7 @@ mod tests {
             .almost_eq(&Point3f::new(1.0, 0.0, 2.0)));
 
         let ray = Ray::new(Point3f::new(1.0, 1.0, 1.0), Vector3f::new(1.2, -2.3, 4.5));
-        let (_, entity) = bvh
-            ._intersected_entity(&ray, &world.read_storage())
-            .unwrap();
+        let (_, entity) = bvh._intersect_entity(&ray, &world.read_storage()).unwrap();
         assert!(entity
             .position(&world.read_storage())
             .almost_eq(&Point3f::new(1.0, 1.0, 1.0)));
@@ -1347,13 +1347,13 @@ mod tests {
                 .collect::<Vec<AABB>>(),
         );
         let bvh = Node::_new_from_entities(&entities, aabb, &world.read_storage(), 8);
-        let entity = bvh._intersected_entity(
+        let entity = bvh._intersect_entity(
             &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
             &world.read_storage(),
         );
         assert_eq!(entity, None);
 
-        let entity = bvh._intersected_entity(
+        let entity = bvh._intersect_entity(
             &Ray::new(Point3f::origin(), Vector3f::new(1.0, 1.0, 1.0)),
             &world.read_storage(),
         );
@@ -1368,7 +1368,7 @@ mod tests {
             Point3f::new(10.0, 10.0, 10.0),
             Vector3f::new(-1.0, -1.0, -1.0),
         );
-        let entity = bvh._intersected_entity(&ray, &world.read_storage());
+        let entity = bvh._intersect_entity(&ray, &world.read_storage());
         assert!(entity
             .unwrap()
             .1
@@ -1376,7 +1376,7 @@ mod tests {
             .almost_eq(&Point3f::new(4.0, 4.0, 4.0)));
 
         let ray = Ray::new(Point3f::new(3.0, -10.0, 2.0), Vector3f::new(0.0, 1.0, 0.0));
-        let entity = bvh._intersected_entity(&ray, &world.read_storage());
+        let entity = bvh._intersect_entity(&ray, &world.read_storage());
         println!("{:#?}", entity.unwrap().1.position(&world.read_storage()));
         assert!(entity
             .unwrap()
@@ -1385,13 +1385,58 @@ mod tests {
             .almost_eq(&Point3f::new(3.0, -4.0, 2.0)));
     }
 
+    #[test]
     fn test_random_intersect() {
-        let mut world = World::new();
-        world.register::<PrimitiveGeometryComponent>();
-        world.register::<TransformComponent>();
-        world.register::<AABBComponent>();
+        let mut rng = rand::thread_rng();
+        let aabb_size = 10.0;
+        let uniform_dist = Uniform::new(-aabb_size, aabb_size);
+        let direction_dist = Uniform::new(-1.0, 1.0);
 
-        let mut entities: Vec<Entity> = vec![];
-        for _ in 0..1000 {}
+        for _ in 0..10 {
+            let mut world = World::new();
+            world.register::<PrimitiveGeometryComponent>();
+            world.register::<TransformComponent>();
+            world.register::<AABBComponent>();
+
+            let mut entities: Vec<Entity> = vec![];
+            for _ in 0..1000 {
+                let x = rng.sample(uniform_dist);
+                let y = rng.sample(uniform_dist);
+                let z = rng.sample(uniform_dist);
+                entities.push(Entity::new_unitcube_w(
+                    Translation3::from(Vector3f::new(x, y, z)).to_superset(),
+                    &world,
+                ));
+            }
+
+            let octree = Node::new_from_entities(
+                &entities,
+                AABB::new(
+                    Point3f::new(-aabb_size, -aabb_size, -aabb_size),
+                    Point3f::new(aabb_size, aabb_size, aabb_size),
+                ),
+                &world.read_storage(),
+            );
+
+            let ray = Ray::new(
+                Point3f::new(
+                    rng.sample(uniform_dist),
+                    rng.sample(uniform_dist),
+                    rng.sample(uniform_dist),
+                ),
+                Vector3f::new(
+                    rng.sample(direction_dist),
+                    rng.sample(direction_dist),
+                    rng.sample(direction_dist),
+                ),
+            );
+
+            assert_eq!(
+                dbg!(ray
+                    .closest_entity(&entities, &world.read_storage())
+                    .map(|x| x.1)),
+                dbg!(octree.intersect_entity(&ray, &world.read_storage()))
+            );
+        }
     }
 }
