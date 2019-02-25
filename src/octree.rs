@@ -1384,4 +1384,14 @@ mod tests {
             .position(&world.read_storage())
             .almost_eq(&Point3f::new(3.0, -4.0, 2.0)));
     }
+
+    fn test_random_intersect() {
+        let mut world = World::new();
+        world.register::<PrimitiveGeometryComponent>();
+        world.register::<TransformComponent>();
+        world.register::<AABBComponent>();
+
+        let mut entities: Vec<Entity> = vec![];
+        for _ in 0..1000 {}
+    }
 }
