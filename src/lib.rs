@@ -12,13 +12,13 @@ use nalgebra as na;
 #[macro_use]
 mod utils;
 mod camera;
-mod ecs;
+pub mod ecs;
 mod event_handlers;
 pub mod game;
-mod geometry;
-mod octree;
+pub mod geometry;
+pub mod octree;
 pub mod renderer;
-mod types;
+pub mod types;
 pub mod vulkan;
 
 pub use crate::types::prelude::*;

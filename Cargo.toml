@@ -23,6 +23,12 @@ bitflags = "1.0.4"
 
 [dev-dependencies]
 rand = "0.6.5"
+criterion = "0.2.10"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = "0.3.6"
+
