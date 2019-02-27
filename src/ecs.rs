@@ -139,7 +139,7 @@ impl<'a> System<'a> for SelectionSystem {
         let game_state = game_state.deref_mut();
         let GameState {
             ref camera,
-            ref mut selected,
+            ref mut highlighted,
             ..
         } = game_state;
 
@@ -156,56 +156,7 @@ impl<'a> System<'a> for SelectionSystem {
                 }
             }
         }
-        *selected = new_selected.map(|(_, entity)| entity);
-    }
-}
-
-pub struct OctreeSystem {
-    reader_id: ReaderId<ComponentEvent>,
-    inserted: BitSet,
-    modified: BitSet,
-}
-
-impl OctreeSystem {
-    pub fn new(
-        reader_id: ReaderId<ComponentEvent>,
-        inserted: BitSet,
-        modified: BitSet,
-    ) -> OctreeSystem {
-        OctreeSystem {
-            reader_id,
-            inserted,
-            modified,
-        }
-    }
-}
-
-impl<'a> System<'a> for OctreeSystem {
-    type SystemData = (
-        Entities<'a>,
-        ReadStorage<'a, AABBComponent>,
-        WriteExpect<'a, GameState>,
-    );
-
-    fn run(&mut self, (entities, aabb_storage, mut game_state): Self::SystemData) {
-        self.inserted.clear();
-        self.modified.clear();
-
-        let events = aabb_storage.channel().read(&mut self.reader_id);
-        for event in events {
-            match event {
-                ComponentEvent::Inserted(id) => {
-                    self.inserted.add(*id);
-                }
-                ComponentEvent::Modified(id) => {
-                    self.modified.add(*id);
-                }
-                _ => (),
-            }
-        }
-
-        let octree = &mut game_state.octree;
-        for (entity, aabb, _) in (&entities, &aabb_storage, &self.inserted).join() {}
+        *highlighted = new_selected.map(|(_, entity)| entity);
     }
 }
 
@@ -233,7 +184,7 @@ impl<'a> System<'a> for RenderSystem {
             ref mut camera_animation,
             ref mut fps_last_sampled_time,
             ref mut fps_sample,
-            ref selected,
+            ref highlighted,
             ..
         } = game_state;
 
@@ -285,9 +236,9 @@ impl<'a> System<'a> for RenderSystem {
             vertices.extend(geometry.vtx_data(&transform.0));
         }
 
-        let selection_vertices = if let Some(selected) = selected {
-            let transform = transform_storage.get(*selected).unwrap();
-            let geometry = geometry.get(*selected).unwrap();
+        let selection_vertices = if let Some(highlighted) = highlighted {
+            let transform = transform_storage.get(*highlighted).unwrap();
+            let geometry = geometry.get(*highlighted).unwrap();
             Some(geometry.vtx_data(&transform.0))
         } else {
             None

@@ -1,13 +1,12 @@
 use crate::{
     camera::{Camera, CameraAnimation},
     ecs::{
-        AABBComponent, AABBComponentSystem, OctreeSystem, PrimitiveGeometryComponent, RenderSystem,
+        AABBComponent, AABBComponentSystem, PrimitiveGeometryComponent, RenderSystem,
         SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
     geometry::{Square, UnitCube, AABB},
     na::Translation3,
-    octree,
     renderer::Renderer,
     types::prelude::*,
     utils::NSEC_PER_SEC,
@@ -41,8 +40,7 @@ pub struct GameState {
     /// In frames per second
     pub fps_sample: f32,
     pub camera_animation: Option<CameraAnimation>,
-    pub selected: Option<Entity>,
-    pub octree: octree::Node,
+    pub highlighted: Option<Entity>,
 }
 
 pub struct Game<'a, 'b> {
@@ -73,11 +71,7 @@ impl<'a, 'b> Game<'a, 'b> {
             fps_last_sampled_time: 0.0,
             // camera_animation: Some(camera_animation),
             camera_animation: None,
-            selected: None,
-            octree: octree::Node::empty(AABB::new(
-                Point3f::new(-50.0, -50.0, -50.0),
-                Point3f::new(50.0, 50.0, 50.0),
-            )),
+            highlighted: None,
         };
         let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
 
@@ -101,12 +95,7 @@ impl<'a, 'b> Game<'a, 'b> {
                     "AABBComponentSystem",
                     &[],
                 )
-                .with(
-                    OctreeSystem::new(aabb_storage.register_reader(), BitSet::new(), BitSet::new()),
-                    "OctreeSystem",
-                    &["AABBComponentSystem"],
-                )
-                .with(SelectionSystem, "SelectionSystem", &["OctreeSystem"])
+                .with(SelectionSystem, "SelectionSystem", &["AABBComponentSystem"])
                 .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),
                 })
@@ -143,11 +132,6 @@ impl<'a, 'b> Game<'a, 'b> {
             ))
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
-
-        {
-            let mut state = world.write_resource::<GameState>();
-            state.selected = Some(cube1);
-        }
 
         Ok(Game {
             world,

@@ -1,3 +1,5 @@
+//! Probably not going to use this for selection for now.
+
 use crate::{
     ecs::{entity::Entity, AABBComponent, TransformComponent},
     geometry::{Axis, Ray, AABB, AAP},
