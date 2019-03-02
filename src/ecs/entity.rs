@@ -55,7 +55,7 @@ impl Entity {
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
-        let aabb = AABB::new(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
+        let aabb = AABB::new_min_max(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
             .transform(&transform);
         let entity = entities
             .build_entity()
@@ -168,6 +168,6 @@ impl Entity {
     }
 
     pub fn position_aabb(&self, storage: &ReadStorage<AABBComponent>) -> Point3f {
-        self.aabb(storage).center()
+        self.aabb(storage).center
     }
 }

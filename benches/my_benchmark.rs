@@ -78,7 +78,7 @@ fn bench_intersect_entity_funcs(c: &mut Criterion) {
                 || {
                     Node::new_from_entities(
                         &entities,
-                        AABB::new(
+                        AABB::new_min_max(
                             Point3f::new(-aabb_size, -aabb_size, -aabb_size),
                             Point3f::new(aabb_size, aabb_size, aabb_size),
                         ),

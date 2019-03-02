@@ -25,8 +25,8 @@ impl Ray {
     }
 
     pub fn intersect_aabb(&self, aabb: &AABB) -> Option<(f32, Point3f)> {
-        let min = aabb.min;
-        let max = aabb.max;
+        let min = aabb.min();
+        let max = aabb.max();
 
         let mut tmin = (min.x - self.origin.x) / self.direction.x;
         let mut tmax = (max.x - self.origin.x) / self.direction.x;
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn test_intersect1() {
         let r = Ray::new(Point3f::origin(), Vector3f::x());
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_some());
         assert!(intersection
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn test_intersect2() {
         let r = Ray::new(Point3f::new(-1.0, -0.5, 2.0), Vector3f::new(1.0, 0.0, -1.0));
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_some());
         println!("{:?}", intersection);
@@ -194,7 +194,7 @@ mod tests {
             Point3f::new(10.0, 10.0, 10.0),
             Vector3f::new(-1.0, -1.0, -1.0),
         );
-        let intersection = ray.intersect_aabbs(&[AABB::new(
+        let intersection = ray.intersect_aabbs(&[AABB::new_min_max(
             Point3f::new(3.0, 3.0, 3.0),
             Point3f::new(4.0, 4.0, 4.0),
         )]);
@@ -204,14 +204,14 @@ mod tests {
     #[test]
     fn test_no_intersect1() {
         let r = Ray::new(Point3f::new(2.0, 0.0, 0.0), Vector3f::x());
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_none());
     }
 
     #[test]
     fn test_no_intersect2() {
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let dir = Vector3f::new(0.99, 0.0, 1.0);
         let r = Ray::new(Point3f::new(0.0, 0.0, 2.0), dir);
         assert_eq!(r.intersect_aabb(&aabb), None);
@@ -222,8 +222,8 @@ mod tests {
         let r = Ray::new(Point3f::new(-2.0, 0.5, -0.5), Vector3f::x());
         let intersection = r
             .intersect_aabbs(&[
-                AABB::new(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
-                AABB::new(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
+                AABB::new_min_max(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
+                AABB::new_min_max(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ])
             .unwrap();
         assert_eq!(intersection.0, 1);
@@ -234,8 +234,8 @@ mod tests {
         let r = Ray::new(Point3f::new(-2.0, 1.5, -0.5), Vector3f::x());
         assert_eq!(
             r.intersect_aabbs(&[
-                AABB::new(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
-                AABB::new(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
+                AABB::new_min_max(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
+                AABB::new_min_max(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ]),
             None
         );

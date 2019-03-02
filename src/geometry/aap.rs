@@ -53,21 +53,21 @@ mod tests {
     #[test]
     fn test_intersects_aabb() {
         let aap = AAP::new(Axis::X, 2.0);
-        assert!(aap.intersects_aabb(&AABB::new(
+        assert!(aap.intersects_aabb(&AABB::new_min_max(
             Point3f::new(1.0, 0.0, 0.0),
             Point3f::new(3.0, 1.0, 1.0)
         )));
-        assert!(!aap.intersects_aabb(&AABB::new(
+        assert!(!aap.intersects_aabb(&AABB::new_min_max(
             Point3f::new(1.0, 0.0, 0.0),
             Point3f::new(1.5, 1.0, 1.0)
         )));
 
         let aap = AAP::new(Axis::X, -2.0);
-        assert!(aap.intersects_aabb(&AABB::new(
+        assert!(aap.intersects_aabb(&AABB::new_min_max(
             Point3f::new(-1.0, 0.0, 0.0),
             Point3f::new(-3.0, 1.0, 1.0)
         )));
-        assert!(!aap.intersects_aabb(&AABB::new(
+        assert!(!aap.intersects_aabb(&AABB::new_min_max(
             Point3f::new(-1.0, 0.0, 0.0),
             Point3f::new(-1.5, 1.0, 1.0)
         )));

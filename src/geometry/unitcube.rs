@@ -83,6 +83,6 @@ impl PrimitiveGeometry for UnitCube {
                 self.side_len / 2.0,
                 self.side_len / 2.0,
             );
-        AABB::new(min, max)
+        AABB::new_min_max(min, max)
     }
 }

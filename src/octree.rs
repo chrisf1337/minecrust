@@ -173,9 +173,9 @@ impl Node {
         let mut dx = ray.direction.x;
         let mut dy = ray.direction.y;
         let mut dz = ray.direction.z;
-        let center_x = self.aabb.center().x;
-        let center_y = self.aabb.center().y;
-        let center_z = self.aabb.center().z;
+        let center_x = self.aabb.center.x;
+        let center_y = self.aabb.center.y;
+        let center_z = self.aabb.center.z;
 
         if ray.direction.x < 0.0 {
             ox = center_x - ray.origin.x;
@@ -195,45 +195,48 @@ impl Node {
             a |= 1;
         }
 
+        let min = self.aabb.min();
+        let max = self.aabb.max();
+
         let tx0 = if dx != 0.0 {
-            (self.aabb.min.x - ox) / dx
-        } else if self.aabb.min.x - ox <= 0.0 {
+            (min.x - ox) / dx
+        } else if min.x - ox <= 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let ty0 = if dy != 0.0 {
-            (self.aabb.min.y - oy) / dy
-        } else if self.aabb.min.y - oy <= 0.0 {
+            (min.y - oy) / dy
+        } else if min.y - oy <= 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let tz0 = if dz != 0.0 {
-            (self.aabb.min.z - oz) / dz
-        } else if self.aabb.min.z - oz <= 0.0 {
+            (min.z - oz) / dz
+        } else if min.z - oz <= 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
 
         let tx1 = if dx != 0.0 {
-            (self.aabb.max.x - ox) / dx
-        } else if self.aabb.max.x - ox < 0.0 {
+            (max.x - ox) / dx
+        } else if max.x - ox < 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let ty1 = if dy != 0.0 {
-            (self.aabb.max.y - oy) / dy
-        } else if self.aabb.max.y - oy < 0.0 {
+            (max.y - oy) / dy
+        } else if max.y - oy < 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let tz1 = if dz != 0.0 {
-            (self.aabb.max.z - oz) / dz
-        } else if self.aabb.max.z - oz < 0.0 {
+            (max.z - oz) / dz
+        } else if max.z - oz < 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
@@ -272,22 +275,25 @@ impl Node {
         let mut tym = 0.5 * (ty0 + ty1);
         let mut tzm = 0.5 * (tz0 + tz1);
 
+        let min = self.aabb.min();
+        let max = self.aabb.max();
+
         if txm.is_nan() {
-            txm = if ray.origin.x < (self.aabb.min.x + self.aabb.max.x) / 2.0 {
+            txm = if ray.origin.x < (min.x + max.x) / 2.0 {
                 std::f32::INFINITY
             } else {
                 std::f32::NEG_INFINITY
             };
         }
         if tym.is_nan() {
-            tym = if ray.origin.y < (self.aabb.min.y + self.aabb.max.y) / 2.0 {
+            tym = if ray.origin.y < (min.y + max.y) / 2.0 {
                 std::f32::INFINITY
             } else {
                 std::f32::NEG_INFINITY
             };
         }
         if tzm.is_nan() {
-            tzm = if ray.origin.z < (self.aabb.min.z + self.aabb.max.z) / 2.0 {
+            tzm = if ray.origin.z < (min.z + max.z) / 2.0 {
                 std::f32::INFINITY
             } else {
                 std::f32::NEG_INFINITY
@@ -452,13 +458,13 @@ impl Node {
                 self.entities.push(entity);
             }
         } else {
-            let oct_idx = octant_index(&(self.aabb.center() - entity.aabb(&aabb_storage).center()));
+            let oct_idx = octant_index(&(self.aabb.center - entity.aabb(&aabb_storage).center));
             let mut parent = self;
             let mut child = &mut parent.children.as_mut().unwrap()[oct_idx];
             while !child.is_terminal() {
                 parent = child;
                 let oct_idx =
-                    octant_index(&(parent.aabb.center() - entity.aabb(&aabb_storage).center()));
+                    octant_index(&(parent.aabb.center - entity.aabb(&aabb_storage).center));
                 child = &mut parent.children.as_mut().unwrap()[oct_idx];
             }
         }
@@ -640,7 +646,7 @@ fn partition_children(
     aabb_storage: &ReadStorage<AABBComponent>,
     child_node_max_size: usize,
 ) -> (Vec<Entity>, NodeOctants) {
-    let (node_entities, octants) = partition_entities(entities, &aabb.center(), aabb_storage);
+    let (node_entities, octants) = partition_entities(entities, &aabb.center, aabb_storage);
     let aabb_octants = aabb.partition();
     let tfl = Box::new(Node::_new_from_entities(
         &octants.tfl,
@@ -738,9 +744,11 @@ mod tests {
         let mut dx = ray.direction.x;
         let mut dy = ray.direction.y;
         let mut dz = ray.direction.z;
-        let center_x = aabb.max.x - aabb.min.x;
-        let center_y = aabb.max.y - aabb.min.y;
-        let center_z = aabb.max.z - aabb.min.z;
+        let min = aabb.min();
+        let max = aabb.max();
+        let center_x = max.x - min.x;
+        let center_y = max.y - min.y;
+        let center_z = max.z - min.z;
 
         if ray.direction.x < 0.0 {
             ox = center_x - ray.origin.x;
@@ -761,44 +769,44 @@ mod tests {
         }
 
         let tx0 = if dx != 0.0 {
-            (aabb.min.x - ox) / dx
-        } else if aabb.min.x - ox <= 0.0 {
+            (min.x - ox) / dx
+        } else if min.x - ox <= 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let ty0 = if dy != 0.0 {
-            (aabb.min.y - oy) / dy
-        } else if aabb.min.y - oy <= 0.0 {
+            (min.y - oy) / dy
+        } else if min.y - oy <= 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let tz0 = if dz != 0.0 {
-            (aabb.min.z - oz) / dz
-        } else if aabb.min.z - oz <= 0.0 {
+            (min.z - oz) / dz
+        } else if min.z - oz <= 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
 
         let tx1 = if dx != 0.0 {
-            (aabb.max.x - ox) / dx
-        } else if aabb.max.x - ox < 0.0 {
+            (max.x - ox) / dx
+        } else if max.x - ox < 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let ty1 = if dy != 0.0 {
-            (aabb.max.y - oy) / dy
-        } else if aabb.max.y - oy < 0.0 {
+            (max.y - oy) / dy
+        } else if max.y - oy < 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
         };
         let tz1 = if dz != 0.0 {
-            (aabb.max.z - oz) / dz
-        } else if aabb.max.z - oz < 0.0 {
+            (max.z - oz) / dz
+        } else if max.z - oz < 0.0 {
             std::f32::NEG_INFINITY
         } else {
             std::f32::INFINITY
@@ -809,21 +817,21 @@ mod tests {
         let mut tzm = 0.5 * (tz0 + tz1);
 
         if txm.is_nan() {
-            txm = if ray.origin.x < (aabb.min.x + aabb.max.x) / 2.0 {
+            txm = if ray.origin.x < (min.x + max.x) / 2.0 {
                 std::f32::INFINITY
             } else {
                 std::f32::NEG_INFINITY
             };
         }
         if tym.is_nan() {
-            tym = if ray.origin.y < (aabb.min.y + aabb.max.y) / 2.0 {
+            tym = if ray.origin.y < (min.y + max.y) / 2.0 {
                 std::f32::INFINITY
             } else {
                 std::f32::NEG_INFINITY
             };
         }
         if tzm.is_nan() {
-            tzm = if ray.origin.z < (aabb.min.z + aabb.max.z) / 2.0 {
+            tzm = if ray.origin.z < (min.z + max.z) / 2.0 {
                 std::f32::INFINITY
             } else {
                 std::f32::NEG_INFINITY
@@ -846,7 +854,7 @@ mod tests {
 
     #[test]
     fn test_first_node_x() {
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
 
         // positive x
         let ray = Ray::new(Point3f::new(-10.0, -0.5, -0.5), Vector3f::x());
@@ -917,7 +925,7 @@ mod tests {
 
     #[test]
     fn test_first_node_y() {
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
 
         // positive y
         let ray = Ray::new(Point3f::new(-0.5, -10.0, -0.5), Vector3f::y());
@@ -988,7 +996,7 @@ mod tests {
 
     #[test]
     fn test_first_node_z() {
-        let aabb = AABB::new(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
 
         // positive z
         let ray = Ray::new(Point3f::new(-0.5, -0.5, -10.0), Vector3f::z());
@@ -1413,7 +1421,7 @@ mod tests {
 
             let octree = Node::new_from_entities(
                 &entities,
-                AABB::new(
+                AABB::new_min_max(
                     Point3f::new(-aabb_size, -aabb_size, -aabb_size),
                     Point3f::new(aabb_size, aabb_size, aabb_size),
                 ),
