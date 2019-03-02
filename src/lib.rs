@@ -20,5 +20,6 @@ pub mod octree;
 pub mod renderer;
 pub mod types;
 pub mod vulkan;
+pub mod chunk;
 
 pub use crate::types::prelude::*;

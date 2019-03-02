@@ -19,7 +19,7 @@ impl Entity {
     }
 
     pub fn new_clone(
-        entity: &Entity,
+        entity: Entity,
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
@@ -110,7 +110,7 @@ impl Entity {
     }
 
     pub fn set_transform(
-        &self,
+        self,
         storage: &mut WriteStorage<TransformComponent>,
         transform: Transform3f,
     ) {
@@ -135,7 +135,7 @@ impl Entity {
     }
 
     pub fn set_geometry(
-        &self,
+        self,
         storage: &mut WriteStorage<PrimitiveGeometryComponent>,
         geometry: PrimitiveGeometryComponent,
     ) {
@@ -155,7 +155,7 @@ impl Entity {
         &self.component(storage).0
     }
 
-    pub fn set_aabb(&self, storage: &mut WriteStorage<AABBComponent>, aabb: AABBComponent) {
+    pub fn set_aabb(self, storage: &mut WriteStorage<AABBComponent>, aabb: AABBComponent) {
         if let Some(bb) = storage.get_mut(self.entity) {
             *bb = aabb
         } else {

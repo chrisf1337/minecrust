@@ -67,15 +67,28 @@ impl Ray {
         }
     }
 
+    fn intersect_aabb_optional(&self, aabb: &Option<AABB>) -> Option<(f32, Point3f)> {
+        if let Some(aabb) = aabb {
+            self.intersect_aabb(aabb)
+        } else {
+            None
+        }
+    }
+
     pub fn intersect_aabbs(&self, aabbs: &[AABB]) -> Option<(usize, (f32, Point3f))> {
         let aabb = aabbs
             .iter()
             .enumerate()
-            .filter_map(|(i, bb)| {
-                // println!("center {:?}", bb.center());
-                // println!("{:?}", self);
-                self.intersect_aabb(bb).map(|r| (i, r))
-            })
+            .filter_map(|(i, bb)| self.intersect_aabb(bb).map(|r| (i, r)))
+            .min_by(|(_, (t1, _)), (_, (t2, _))| t1.partial_cmp(t2).unwrap())?;
+        Some(aabb)
+    }
+
+    fn intersect_aabbs_optional(&self, aabbs: &[Option<AABB>]) -> Option<(usize, (f32, Point3f))> {
+        let aabb = aabbs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, bb)| self.intersect_aabb_optional(bb).map(|r| (i, r)))
             .min_by(|(_, (t1, _)), (_, (t2, _))| t1.partial_cmp(t2).unwrap())?;
         Some(aabb)
     }
@@ -97,6 +110,19 @@ impl Ray {
             &entities
                 .iter()
                 .map(|e| *e.aabb(storage))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn intersect_entities_optional(
+        &self,
+        entities: &[Option<Entity>],
+        storage: &ReadStorage<AABBComponent>,
+    ) -> Option<(usize, (f32, Point3f))> {
+        self.intersect_aabbs_optional(
+            &entities
+                .iter()
+                .map(|e| e.map(|e| *e.aabb(storage)))
                 .collect::<Vec<_>>(),
         )
     }
