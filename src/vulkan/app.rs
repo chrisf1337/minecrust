@@ -205,7 +205,7 @@ pub struct VulkanApp {
     graphics_pipeline_layout: vk::PipelineLayout,
 
     graphics_staging_vertex_buffers: Vec<Buffer<Vertex3f>>,
-    graphics_vertex_buffers: Vec<Buffer<TextVertex>>,
+    graphics_vertex_buffers: Vec<Buffer<Vertex3f>>,
     graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
 
     graphics_descriptor_sets: Vec<vk::DescriptorSet>,
