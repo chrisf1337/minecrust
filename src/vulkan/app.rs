@@ -1144,57 +1144,62 @@ impl VulkanApp {
         Ok(cmd_buf)
     }
 
-    unsafe fn create_take_ownership_cmd_bufs(&mut self) -> VkResult<()> {
-        for index in 0..self.swapchain_len {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.graphics_command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(1)
-                .build();
-            let command_buffer = self
-                .core
-                .device
-                .allocate_command_buffers(&command_buffer_alloc_info)?[0];
-
-            let begin_info = vk::CommandBufferBeginInfo::builder().build();
+    fn new_take_ownership_cmd_bufs(
+        &mut self,
+        index: usize,
+        selection_active: bool,
+    ) -> VkResult<vk::CommandBuffer> {
+        let command_buffer = self.take_ownership_cmd_buffers[index];
+        let begin_info = vk::CommandBufferBeginInfo::builder().build();
+        unsafe {
             self.core
                 .device
                 .begin_command_buffer(command_buffer, &begin_info)?;
 
+            let mut buffer_memory_buffers = vec![
+                vk::BufferMemoryBarrier::builder()
+                    .src_access_mask(vk::AccessFlags::empty())
+                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                    .src_queue_family_index(self.core.transfer_queue_family_index)
+                    .dst_queue_family_index(self.core.graphics_queue_family_index)
+                    .buffer(self.graphics_vertex_buffers[index].buffer())
+                    .build(),
+                vk::BufferMemoryBarrier::builder()
+                    .src_access_mask(vk::AccessFlags::empty())
+                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                    .src_queue_family_index(self.core.transfer_queue_family_index)
+                    .dst_queue_family_index(self.core.graphics_queue_family_index)
+                    .buffer(self.text_vertex_buffers[index].buffer())
+                    .build(),
+            ];
+            if selection_active {
+                buffer_memory_buffers.push(
+                    vk::BufferMemoryBarrier::builder()
+                        .src_access_mask(vk::AccessFlags::empty())
+                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                        .src_queue_family_index(self.core.transfer_queue_family_index)
+                        .dst_queue_family_index(self.core.graphics_queue_family_index)
+                        .buffer(self.selection_vertex_buffers[index].buffer())
+                        .build(),
+                );
+            }
             self.core.device.cmd_pipeline_barrier(
                 command_buffer,
                 vk::PipelineStageFlags::TOP_OF_PIPE,
                 vk::PipelineStageFlags::VERTEX_INPUT,
                 vk::DependencyFlags::empty(),
                 &[],
-                &[
-                    vk::BufferMemoryBarrier::builder()
-                        .src_access_mask(vk::AccessFlags::empty())
-                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                        .src_queue_family_index(self.core.transfer_queue_family_index)
-                        .dst_queue_family_index(self.core.graphics_queue_family_index)
-                        .buffer(self.graphics_vertex_buffers[index].buffer())
-                        .build(),
-                    vk::BufferMemoryBarrier::builder()
-                        .src_access_mask(vk::AccessFlags::empty())
-                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                        .src_queue_family_index(self.core.transfer_queue_family_index)
-                        .dst_queue_family_index(self.core.graphics_queue_family_index)
-                        .buffer(self.text_vertex_buffers[index].buffer())
-                        .build(),
-                ],
+                &buffer_memory_buffers,
                 &[],
             );
 
             self.core.device.end_command_buffer(command_buffer)?;
-
-            self.take_ownership_cmd_buffers.push(command_buffer);
         }
 
-        Ok(())
+        Ok(command_buffer)
     }
 
-    unsafe fn new_text_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+    fn new_text_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
         let cmd_buf = self.text_draw_cmd_bufs[index];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .inheritance_info(
@@ -1208,44 +1213,46 @@ impl VulkanApp {
                     | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
             )
             .build();
-        self.core
-            .device
-            .begin_command_buffer(cmd_buf, &begin_info)?;
+        unsafe {
+            self.core
+                .device
+                .begin_command_buffer(cmd_buf, &begin_info)?;
 
-        self.core.device.cmd_bind_pipeline(
-            cmd_buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.text_pipeline,
-        );
-        self.core.device.cmd_bind_vertex_buffers(
-            cmd_buf,
-            0,
-            &[self.text_vertex_buffers[index].buffer()],
-            &[0],
-        );
-        self.core.device.cmd_bind_descriptor_sets(
-            cmd_buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.text_pipeline_layout,
-            0,
-            &[self.text_descriptor_sets[index]],
-            &[],
-        );
+            self.core.device.cmd_bind_pipeline(
+                cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.text_pipeline,
+            );
+            self.core.device.cmd_bind_vertex_buffers(
+                cmd_buf,
+                0,
+                &[self.text_vertex_buffers[index].buffer()],
+                &[0],
+            );
+            self.core.device.cmd_bind_descriptor_sets(
+                cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.text_pipeline_layout,
+                0,
+                &[self.text_descriptor_sets[index]],
+                &[],
+            );
 
-        self.core.device.cmd_draw(
-            cmd_buf,
-            self.text_staging_vertex_buffers[index].len as u32,
-            1,
-            0,
-            0,
-        );
+            self.core.device.cmd_draw(
+                cmd_buf,
+                self.text_staging_vertex_buffers[index].len as u32,
+                1,
+                0,
+                0,
+            );
 
-        self.core.device.end_command_buffer(cmd_buf)?;
+            self.core.device.end_command_buffer(cmd_buf)?;
+        }
 
         Ok(cmd_buf)
     }
 
-    unsafe fn new_transfer_cmd_buf(
+    fn new_transfer_cmd_buf(
         &mut self,
         index: usize,
         selection_active: bool,
@@ -1254,46 +1261,41 @@ impl VulkanApp {
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
             .build();
-        self.core
-            .device
-            .begin_command_buffer(cmd_buf, &begin_info)?;
+        unsafe {
+            self.core
+                .device
+                .begin_command_buffer(cmd_buf, &begin_info)?;
 
-        self.core.device.cmd_copy_buffer(
-            cmd_buf,
-            self.graphics_staging_vertex_buffers[index].buffer(),
-            self.graphics_vertex_buffers[index].buffer(),
-            &[vk::BufferCopy::builder()
-                .size(self.graphics_staging_vertex_buffers[index].buf_len)
-                .build()],
-        );
-
-        self.core.device.cmd_copy_buffer(
-            cmd_buf,
-            self.text_staging_vertex_buffers[index].buffer(),
-            self.text_vertex_buffers[index].buffer(),
-            &[vk::BufferCopy::builder()
-                .size(self.text_staging_vertex_buffers[index].buf_len)
-                .build()],
-        );
-
-        if selection_active {
             self.core.device.cmd_copy_buffer(
                 cmd_buf,
-                self.selection_staging_vertex_buffers[index].buffer(),
-                self.selection_vertex_buffers[index].buffer(),
+                self.graphics_staging_vertex_buffers[index].buffer(),
+                self.graphics_vertex_buffers[index].buffer(),
                 &[vk::BufferCopy::builder()
-                    .size(self.selection_staging_vertex_buffers[index].buf_len)
+                    .size(self.graphics_staging_vertex_buffers[index].buf_len)
                     .build()],
             );
-        }
 
-        self.core.device.cmd_pipeline_barrier(
-            cmd_buf,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[
+            self.core.device.cmd_copy_buffer(
+                cmd_buf,
+                self.text_staging_vertex_buffers[index].buffer(),
+                self.text_vertex_buffers[index].buffer(),
+                &[vk::BufferCopy::builder()
+                    .size(self.text_staging_vertex_buffers[index].buf_len)
+                    .build()],
+            );
+
+            if selection_active {
+                self.core.device.cmd_copy_buffer(
+                    cmd_buf,
+                    self.selection_staging_vertex_buffers[index].buffer(),
+                    self.selection_vertex_buffers[index].buffer(),
+                    &[vk::BufferCopy::builder()
+                        .size(self.selection_staging_vertex_buffers[index].buf_len)
+                        .build()],
+                );
+            }
+
+            let mut buffer_memory_buffers = vec![
                 vk::BufferMemoryBarrier::builder()
                     .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .dst_access_mask(vk::AccessFlags::empty())
@@ -1308,11 +1310,30 @@ impl VulkanApp {
                     .dst_queue_family_index(self.core.graphics_queue_family_index)
                     .buffer(self.text_vertex_buffers[index].buffer())
                     .build(),
-            ],
-            &[],
-        );
+            ];
+            if selection_active {
+                buffer_memory_buffers.push(
+                    vk::BufferMemoryBarrier::builder()
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::empty())
+                        .src_queue_family_index(self.core.transfer_queue_family_index)
+                        .dst_queue_family_index(self.core.graphics_queue_family_index)
+                        .buffer(self.selection_vertex_buffers[index].buffer())
+                        .build(),
+                )
+            }
+            self.core.device.cmd_pipeline_barrier(
+                cmd_buf,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::DependencyFlags::empty(),
+                &[],
+                &buffer_memory_buffers,
+                &[],
+            );
 
-        self.core.device.end_command_buffer(cmd_buf)?;
+            self.core.device.end_command_buffer(cmd_buf)?;
+        }
 
         Ok(cmd_buf)
     }
@@ -1664,7 +1685,7 @@ impl VulkanApp {
         let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.graphics_command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(self.swapchain_len as u32 * 2)
+            .command_buffer_count(self.swapchain_len as u32 * 3)
             .build();
         let mut primary_command_buffers = self
             .core
@@ -1712,7 +1733,7 @@ impl VulkanApp {
 
         self.crosshair_transfer_cmd_buf = self.new_crosshair_transfer_cmd_buf()?;
 
-        self.create_take_ownership_cmd_bufs()?;
+        self.take_ownership_cmd_buffers = primary_command_buffers.pop().unwrap();
 
         Ok(())
     }
@@ -2890,18 +2911,19 @@ impl Renderer for VulkanApp {
                     )?;
 
                     let transfer_cmd_buf =
-                        self.new_transfer_cmd_buf(image_index, selection_vertices.is_some())?;
-
+                        [self.new_transfer_cmd_buf(image_index, selection_vertices.is_some())?];
+                    let signal_semaphores = [self.transfer_ownership_semaphores[image_index]];
                     self.core.device.queue_submit(
                         self.core.transfer_queue,
                         &[vk::SubmitInfo::builder()
-                            .command_buffers(&[transfer_cmd_buf])
-                            .signal_semaphores(&[self.transfer_ownership_semaphores[image_index]])
+                            .command_buffers(&transfer_cmd_buf)
+                            .signal_semaphores(&signal_semaphores)
                             .build()],
                         vk::Fence::null(),
                     )?;
 
-                    let command_buffers = [self.take_ownership_cmd_buffers[image_index]];
+                    let command_buffers = [self
+                        .new_take_ownership_cmd_bufs(image_index, selection_vertices.is_some())?];
                     let wait_semaphores = [self.transfer_ownership_semaphores[image_index]];
                     let wait_dst_stage_mask = [vk::PipelineStageFlags::VERTEX_INPUT];
                     self.core.device.queue_submit(
