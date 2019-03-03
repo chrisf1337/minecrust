@@ -71,18 +71,13 @@ impl PrimitiveGeometry for UnitCube {
     }
 
     fn aabb(&self, transform: &Transform3f) -> AABB {
-        let min = transform
-            * Point3f::new(
-                -self.side_len / 2.0,
-                -self.side_len / 2.0,
-                -self.side_len / 2.0,
-            );
-        let max = transform
-            * Point3f::new(
+        AABB::new(
+            transform.translation(),
+            Vector3f::new(
                 self.side_len / 2.0,
                 self.side_len / 2.0,
                 self.side_len / 2.0,
-            );
-        AABB::new_min_max(min, max)
+            ),
+        )
     }
 }

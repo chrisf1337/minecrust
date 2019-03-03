@@ -34,6 +34,10 @@ pub struct AABB {
 }
 
 impl AABB {
+    pub fn new(center: Point3f, extents: Vector3f) -> AABB {
+        AABB { center, extents }
+    }
+
     pub fn new_min_max(min: Point3f, max: Point3f) -> AABB {
         let center = point3f::midpoint(&min, &max);
         let extents = (point3f::max(&min, &max) - point3f::min(&min, &max)) / 2.0;

@@ -48,12 +48,8 @@ impl PrimitiveGeometryComponent {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Component)]
 pub struct AABBComponent(pub AABB);
-
-impl Component for AABBComponent {
-    type Storage = FlaggedStorage<Self>;
-}
 
 pub struct AABBComponentSystem {
     reader_id: ReaderId<ComponentEvent>,
@@ -124,6 +120,12 @@ impl<'a> System<'a> for AABBComponentSystem {
             *aabb_storage.get_mut(entity).unwrap() = AABBComponent(aabb);
         }
     }
+}
+
+pub struct ChunkSystem {
+    reader_id: ReaderId<ComponentEvent>,
+    inserted: BitSet,
+    modified: BitSet,
 }
 
 pub struct SelectionSystem;
