@@ -7,6 +7,6 @@ pub use crate::types::{
     transform3fext::Transform3fExt,
     vector3fext::{Vector3fExt, Vector3fUtilExt},
     vector4fext::Vector4fExt,
-    Matrix3f, Matrix4f, Point2f, Point3f, Transform2f, Transform3f, UnitQuaternionf, Vector2f,
-    Vector3f, Vector4f,
+    Matrix3f, Matrix4f, Point2f, Point3f, Transform2f, Transform3f, Translation3f, UnitQuaternionf,
+    Vector2f, Vector3f, Vector4f,
 };

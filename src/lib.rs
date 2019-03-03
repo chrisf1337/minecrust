@@ -11,7 +11,9 @@ use nalgebra as na;
 
 #[macro_use]
 mod utils;
+mod block;
 mod camera;
+pub mod chunk;
 pub mod ecs;
 mod event_handlers;
 pub mod game;
@@ -20,6 +22,5 @@ pub mod octree;
 pub mod renderer;
 pub mod types;
 pub mod vulkan;
-pub mod chunk;
 
 pub use crate::types::prelude::*;

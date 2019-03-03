@@ -11,7 +11,8 @@ mod vector4fext;
 pub use crate::types::color::Color;
 
 use crate::na::{
-    Affine2, Affine3, Matrix3, Matrix4, Point2, Point3, UnitQuaternion, Vector2, Vector3, Vector4,
+    Affine2, Affine3, Matrix3, Matrix4, Point2, Point3, Translation3, UnitQuaternion, Vector2,
+    Vector3, Vector4,
 };
 
 pub type Matrix3f = Matrix3<f32>;
@@ -24,3 +25,4 @@ pub type Point3f = Point3<f32>;
 pub type UnitQuaternionf = UnitQuaternion<f32>;
 pub type Transform2f = Affine2<f32>;
 pub type Transform3f = Affine3<f32>;
+pub type Translation3f = Translation3<f32>;

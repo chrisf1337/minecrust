@@ -1,5 +1,6 @@
 use crate::{
-    ecs::{AABBComponent, PrimitiveGeometryComponent, TransformComponent},
+    block::BlockType,
+    ecs::{AABBComponent, BlockTypeComponent, PrimitiveGeometryComponent, TransformComponent},
     geometry::{UnitCube, AABB},
     types::prelude::*,
 };
@@ -61,8 +62,7 @@ impl Entity {
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
-        let aabb = AABB::new_min_max(Point3f::new(-0.5, -0.5, -0.5), Point3f::new(0.5, 0.5, 0.5))
-            .transform(&transform);
+        let aabb = AABB::new(Point3f::origin(), Vector3f::new(0.5, 0.5, 0.5)).transform(&transform);
         let entity = entities
             .build_entity()
             .with(TransformComponent(transform), transform_storage)
@@ -76,6 +76,41 @@ impl Entity {
         Entity::new_unitcube(
             transform,
             &world.entities(),
+            &mut world.write_storage(),
+            &mut world.write_storage(),
+            &mut world.write_storage(),
+        )
+    }
+
+    pub fn new_block(
+        transform: Transform3f,
+        block_type: BlockType,
+        entities: &specs::Entities,
+        transform_storage: &mut WriteStorage<TransformComponent>,
+        aabb_storage: &mut WriteStorage<AABBComponent>,
+        geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
+        block_type_storage: &mut WriteStorage<BlockTypeComponent>,
+    ) -> Entity {
+        Entity::new_unitcube(
+            transform,
+            entities,
+            transform_storage,
+            aabb_storage,
+            geom_storage,
+        )
+        .with_component(BlockTypeComponent(block_type), block_type_storage)
+    }
+
+    pub fn new_block_w(
+        transform: Transform3f,
+        block_type: BlockType,
+        world: &specs::World,
+    ) -> Entity {
+        Entity::new_block(
+            transform,
+            block_type,
+            &world.entities(),
+            &mut world.write_storage(),
             &mut world.write_storage(),
             &mut world.write_storage(),
             &mut world.write_storage(),

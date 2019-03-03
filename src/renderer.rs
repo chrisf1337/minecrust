@@ -1,9 +1,11 @@
 use crate::{
+    block::BlockType,
     game::GameState,
     vulkan::{error::VulkanError, Vertex3f},
 };
 use ash::vk;
 use failure_derive::Fail;
+use std::collections::HashMap;
 use winit::{EventsLoop, Window};
 
 #[derive(Fail, Debug)]
@@ -38,7 +40,8 @@ pub trait Renderer {
 }
 
 pub struct RenderData {
-    pub vertices: Vec<Vertex3f>,
+    /// Block type -> Vec of vertices for that block type. This is reinitialized each frame.
+    pub vertices: HashMap<BlockType, Vec<Vertex3f>>,
     pub selection_vertices: Option<Vec<Vertex3f>>,
     pub fps: f32,
 }

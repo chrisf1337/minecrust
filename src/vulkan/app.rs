@@ -1,4 +1,5 @@
 use crate::{
+    block::{BlockType, NUM_BLOCK_TYPES},
     game::GameState,
     na::geometry::Perspective3,
     renderer::{RenderData, Renderer, RendererResult},
@@ -204,11 +205,11 @@ pub struct VulkanApp {
     graphics_pipeline: vk::Pipeline,
     graphics_pipeline_layout: vk::PipelineLayout,
 
-    graphics_staging_vertex_buffers: Vec<Buffer<Vertex3f>>,
-    graphics_vertex_buffers: Vec<Buffer<Vertex3f>>,
+    graphics_staging_vertex_buffers: HashMap<BlockType, Vec<Buffer<Vertex3f>>>,
+    graphics_vertex_buffers: HashMap<BlockType, Vec<Buffer<Vertex3f>>>,
     graphics_draw_cmd_bufs: Vec<vk::CommandBuffer>,
 
-    graphics_descriptor_sets: Vec<vk::DescriptorSet>,
+    graphics_descriptor_sets: HashMap<BlockType, Vec<vk::DescriptorSet>>,
     graphics_descriptor_set_layout: DescriptorSetLayout,
 
     graphics_texture_sampler: vk::Sampler,
@@ -525,8 +526,12 @@ impl VulkanApp {
                 base.create_texture_image("assets/texture.jpg")?,
             );
             base.textures.insert(
-                "cobblestone".to_owned(),
+                BlockType::Cobblestone.to_string(),
                 base.create_texture_image("assets/cobblestone-border-arrow.png")?,
+            );
+            base.textures.insert(
+                BlockType::Sandstone.to_string(),
+                base.create_texture_image("assets/sandstone.png")?,
             );
             base.textures.insert(
                 "crosshair".to_owned(),
@@ -683,12 +688,12 @@ impl VulkanApp {
 
     fn create_descriptor_pool(&mut self) -> VkResult<()> {
         let mut bindings = HashMap::new();
-        let layouts = [
-            &self.graphics_descriptor_set_layout,
+        let mut layouts = vec![
             &self.text_descriptor_set_layout,
             &self.crosshair_descriptor_set_layout,
             &self.selection_descriptor_set_layout,
         ];
+        layouts.extend(&[&self.graphics_descriptor_set_layout; NUM_BLOCK_TYPES]);
         for layout in &layouts {
             for binding in &layout.bindings {
                 *bindings.entry(binding.ty).or_insert(0) += 1;
@@ -1156,22 +1161,25 @@ impl VulkanApp {
                 .device
                 .begin_command_buffer(command_buffer, &begin_info)?;
 
-            let mut buffer_memory_buffers = vec![
-                vk::BufferMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::empty())
-                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                    .src_queue_family_index(self.core.transfer_queue_family_index)
-                    .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.graphics_vertex_buffers[index].buffer())
-                    .build(),
-                vk::BufferMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::empty())
-                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                    .src_queue_family_index(self.core.transfer_queue_family_index)
-                    .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.text_vertex_buffers[index].buffer())
-                    .build(),
-            ];
+            let mut buffer_memory_buffers = vec![vk::BufferMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::empty())
+                .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                .src_queue_family_index(self.core.transfer_queue_family_index)
+                .dst_queue_family_index(self.core.graphics_queue_family_index)
+                .buffer(self.text_vertex_buffers[index].buffer())
+                .build()];
+            // FIXME: Only transfer vertices for necessary blocks
+            for graphics_vertex_buffers in self.graphics_vertex_buffers.values() {
+                buffer_memory_buffers.push(
+                    vk::BufferMemoryBarrier::builder()
+                        .src_access_mask(vk::AccessFlags::empty())
+                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                        .src_queue_family_index(self.core.transfer_queue_family_index)
+                        .dst_queue_family_index(self.core.graphics_queue_family_index)
+                        .buffer(graphics_vertex_buffers[index].buffer())
+                        .build(),
+                );
+            }
             if selection_active {
                 buffer_memory_buffers.push(
                     vk::BufferMemoryBarrier::builder()
@@ -1266,14 +1274,17 @@ impl VulkanApp {
                 .device
                 .begin_command_buffer(cmd_buf, &begin_info)?;
 
-            self.core.device.cmd_copy_buffer(
-                cmd_buf,
-                self.graphics_staging_vertex_buffers[index].buffer(),
-                self.graphics_vertex_buffers[index].buffer(),
-                &[vk::BufferCopy::builder()
-                    .size(self.graphics_staging_vertex_buffers[index].buf_len)
-                    .build()],
-            );
+            // FIXME: Only copy necessary buffers
+            for (block_type, staging_vertex_buffers) in &self.graphics_staging_vertex_buffers {
+                self.core.device.cmd_copy_buffer(
+                    cmd_buf,
+                    staging_vertex_buffers[index].buffer(),
+                    self.graphics_vertex_buffers[block_type][index].buffer(),
+                    &[vk::BufferCopy::builder()
+                        .size(staging_vertex_buffers[index].buf_len)
+                        .build()],
+                );
+            }
 
             self.core.device.cmd_copy_buffer(
                 cmd_buf,
@@ -1295,22 +1306,24 @@ impl VulkanApp {
                 );
             }
 
-            let mut buffer_memory_buffers = vec![
-                vk::BufferMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::empty())
-                    .src_queue_family_index(self.core.transfer_queue_family_index)
-                    .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.graphics_vertex_buffers[index].buffer())
-                    .build(),
-                vk::BufferMemoryBarrier::builder()
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::empty())
-                    .src_queue_family_index(self.core.transfer_queue_family_index)
-                    .dst_queue_family_index(self.core.graphics_queue_family_index)
-                    .buffer(self.text_vertex_buffers[index].buffer())
-                    .build(),
-            ];
+            let mut buffer_memory_buffers = vec![vk::BufferMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .dst_access_mask(vk::AccessFlags::empty())
+                .src_queue_family_index(self.core.transfer_queue_family_index)
+                .dst_queue_family_index(self.core.graphics_queue_family_index)
+                .buffer(self.text_vertex_buffers[index].buffer())
+                .build()];
+            for graphics_vertex_buffers in self.graphics_vertex_buffers.values() {
+                buffer_memory_buffers.push(
+                    vk::BufferMemoryBarrier::builder()
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::empty())
+                        .src_queue_family_index(self.core.transfer_queue_family_index)
+                        .dst_queue_family_index(self.core.graphics_queue_family_index)
+                        .buffer(graphics_vertex_buffers[index].buffer())
+                        .build(),
+                );
+            }
             if selection_active {
                 buffer_memory_buffers.push(
                     vk::BufferMemoryBarrier::builder()
@@ -1459,28 +1472,35 @@ impl VulkanApp {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.graphics_pipeline,
             );
-            self.core.device.cmd_bind_vertex_buffers(
-                cmd_buf,
-                0,
-                &[self.graphics_vertex_buffers[index].buffer()],
-                &[0],
-            );
-            self.core.device.cmd_bind_descriptor_sets(
-                cmd_buf,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.graphics_pipeline_layout,
-                0,
-                &[self.graphics_descriptor_sets[index]],
-                &[],
-            );
+            // FIXME: Don't draw all possible block types
+            for (block_type, graphics_vertex_buffers) in &self.graphics_vertex_buffers {
+                let graphics_staging_vertex_buffer =
+                    &self.graphics_staging_vertex_buffers[block_type][index];
+                if graphics_staging_vertex_buffer.len > 0 {
+                    self.core.device.cmd_bind_vertex_buffers(
+                        cmd_buf,
+                        0,
+                        &[graphics_vertex_buffers[index].buffer()],
+                        &[0],
+                    );
+                    self.core.device.cmd_bind_descriptor_sets(
+                        cmd_buf,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        self.graphics_pipeline_layout,
+                        0,
+                        &[self.graphics_descriptor_sets[block_type][index]],
+                        &[],
+                    );
 
-            self.core.device.cmd_draw(
-                cmd_buf,
-                self.graphics_staging_vertex_buffers[index].len as u32,
-                1,
-                0,
-                0,
-            );
+                    self.core.device.cmd_draw(
+                        cmd_buf,
+                        graphics_staging_vertex_buffer.len as u32,
+                        1,
+                        0,
+                        0,
+                    );
+                }
+            }
 
             self.core.device.end_command_buffer(cmd_buf)?;
         }
@@ -1619,9 +1639,12 @@ impl VulkanApp {
         Ok(cmd_buf)
     }
 
-    unsafe fn create_buffers(&mut self) -> VkResult<()> {
+    /// Returns (staging buffer, vertex buffer).
+    fn create_buffers_for_block_type(&mut self, block_type: BlockType) -> VkResult<()> {
+        let mut staging_bufs = vec![];
+        let mut vertex_bufs = vec![];
+
         for _ in 0..self.swapchain_len {
-            // graphics
             let mut staging_buf = Buffer::new_init(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
@@ -1629,15 +1652,29 @@ impl VulkanApp {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             )?;
             staging_buf.map()?;
-            self.graphics_staging_vertex_buffers.push(staging_buf);
 
-            self.graphics_vertex_buffers.push(Buffer::new_init(
+            let vertex_buf = Buffer::new_init(
                 &self.core,
                 VERTEX_BUFFER_CAPCITY,
                 vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            )?);
+            )?;
+            staging_bufs.push(staging_buf);
+            vertex_bufs.push(vertex_buf);
+        }
 
+        self.graphics_staging_vertex_buffers
+            .insert(block_type, staging_bufs);
+        self.graphics_vertex_buffers.insert(block_type, vertex_bufs);
+        Ok(())
+    }
+
+    unsafe fn create_buffers(&mut self) -> VkResult<()> {
+        // graphics
+        self.create_buffers_for_block_type(BlockType::Cobblestone)?;
+        self.create_buffers_for_block_type(BlockType::Sandstone)?;
+
+        for _ in 0..self.swapchain_len {
             // text
             let mut staging_buf = Buffer::new_init(
                 &self.core,
@@ -2407,51 +2444,63 @@ impl VulkanApp {
         Ok(())
     }
 
-    unsafe fn create_descriptor_sets(&mut self) -> VkResult<()> {
+    fn create_descriptor_sets_for_block_type(&mut self, block_type: BlockType) -> VkResult<()> {
         let layouts = vec![self.graphics_descriptor_set_layout.layout(); self.swapchain_len];
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
             .set_layouts(&layouts)
             .build();
 
-        self.graphics_descriptor_sets = self
-            .core
-            .device
-            .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
-        for &ds in self.graphics_descriptor_sets.iter() {
-            // binding 1: sampler
-            let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .sampler(self.graphics_texture_sampler)
-                .build();
-            let image_info = [sampler_descriptor_image_info];
-            let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
-                .dst_set(ds)
-                .dst_binding(1)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
-                .image_info(&image_info)
-                .build();
+        unsafe {
+            let graphics_descriptor_sets = self
+                .core
+                .device
+                .allocate_descriptor_sets(&descriptor_set_alloc_info)?;
+            for &ds in &graphics_descriptor_sets {
+                // binding 1: sampler
+                let sampler_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                    .sampler(self.graphics_texture_sampler)
+                    .build();
+                let image_info = [sampler_descriptor_image_info];
+                let sampler_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                    .dst_set(ds)
+                    .dst_binding(1)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::SAMPLER)
+                    .image_info(&image_info)
+                    .build();
 
-            // binding 2: image
-            let cobblestone_texture = &self.textures["cobblestone"];
-            let texture_descriptor_image_info = vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(cobblestone_texture.view)
-                .build();
-            let image_info = [texture_descriptor_image_info];
-            let texture_write_descriptor_set = vk::WriteDescriptorSet::builder()
-                .dst_set(ds)
-                .dst_binding(2)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .image_info(&image_info)
-                .build();
+                // binding 2: image
+                let texture = &self.textures[&block_type.to_string()];
+                let texture_descriptor_image_info = vk::DescriptorImageInfo::builder()
+                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image_view(texture.view)
+                    .build();
+                let image_info = [texture_descriptor_image_info];
+                let texture_write_descriptor_set = vk::WriteDescriptorSet::builder()
+                    .dst_set(ds)
+                    .dst_binding(2)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .image_info(&image_info)
+                    .build();
 
-            self.core.device.update_descriptor_sets(
-                &[sampler_write_descriptor_set, texture_write_descriptor_set],
-                &[],
-            );
+                self.core.device.update_descriptor_sets(
+                    &[sampler_write_descriptor_set, texture_write_descriptor_set],
+                    &[],
+                );
+            }
+            self.graphics_descriptor_sets
+                .insert(block_type, graphics_descriptor_sets);
         }
+
+        Ok(())
+    }
+
+    unsafe fn create_descriptor_sets(&mut self) -> VkResult<()> {
+        // FIXME
+        self.create_descriptor_sets_for_block_type(BlockType::Cobblestone)?;
+        self.create_descriptor_sets_for_block_type(BlockType::Sandstone)?;
 
         let layouts = vec![self.text_descriptor_set_layout.layout(); self.swapchain_len];
         self.text_descriptor_sets = self.core.device.allocate_descriptor_sets(
@@ -2802,11 +2851,15 @@ impl Drop for VulkanApp {
                 buf.deinit();
             }
 
-            for buf in &mut self.graphics_staging_vertex_buffers {
-                buf.deinit();
+            for bufs in self.graphics_staging_vertex_buffers.values_mut() {
+                for buf in bufs {
+                    buf.deinit();
+                }
             }
-            for buf in &mut self.graphics_vertex_buffers {
-                buf.deinit();
+            for bufs in self.graphics_vertex_buffers.values_mut() {
+                for buf in bufs {
+                    buf.deinit();
+                }
             }
 
             self.crosshair_staging_vertex_buffer.deinit();
@@ -2894,7 +2947,13 @@ impl Renderer for VulkanApp {
                     )?;
 
                     // graphics
-                    self.graphics_staging_vertex_buffers[image_index].copy_data(vertices)?;
+                    for (block_type, block_vertices) in vertices {
+                        // This only copies vertices for necessary block types
+                        self.graphics_staging_vertex_buffers
+                            .get_mut(block_type)
+                            .unwrap()[image_index]
+                            .copy_data(block_vertices)?;
+                    }
 
                     // selection
                     if let Some(vertices) = selection_vertices {

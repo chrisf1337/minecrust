@@ -1,12 +1,13 @@
 use crate::{
+    block::BlockType,
     camera::{Camera, CameraAnimation},
     chunk::Chunk,
     ecs::{
-        self, AABBComponent, AABBComponentSystem, PrimitiveGeometryComponent, RenderSystem,
-        SelectionSystem, TransformComponent,
+        entity, AABBComponent, AABBComponentSystem, BlockTypeComponent, PrimitiveGeometryComponent,
+        RenderSystem, SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{Square, UnitCube},
+    geometry::Square,
     na::Translation3,
     renderer::Renderer,
     types::prelude::*,
@@ -82,6 +83,7 @@ impl<'a, 'b> Game<'a, 'b> {
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
         world.register::<AABBComponent>();
+        world.register::<BlockTypeComponent>();
 
         let dispatcher = {
             let mut transform_storage = world.write_storage::<TransformComponent>();
@@ -104,45 +106,59 @@ impl<'a, 'b> Game<'a, 'b> {
         };
 
         // square
-        let square = world
+        world
             .create_entity()
             .with(TransformComponent(
                 Translation3::from(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
-            .build();
-        // cube 1
-        let cube1 = world
-            .create_entity()
-            .with(TransformComponent(Transform3f::identity()))
-            .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
-            .build();
-        // cube 2
-        let cube2 = world
-            .create_entity()
-            .with(TransformComponent(
-                Translation3::from(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
-            ))
-            .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
-            .build();
-        // cube 3
-        let cube3 = world
-            .create_entity()
-            .with(TransformComponent(
-                Translation3::from(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
-            ))
-            .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
+            .with(BlockTypeComponent(BlockType::Cobblestone))
             .build();
 
-        state
-            .chunk
-            .insert(ecs::entity::Entity::from(cube1), &world.read_storage());
-        state
-            .chunk
-            .insert(ecs::entity::Entity::from(cube2), &world.read_storage());
-        state
-            .chunk
-            .insert(ecs::entity::Entity::from(cube3), &world.read_storage());
+        state.chunk.insert(
+            entity::Entity::new_block_w(Transform3f::identity(), BlockType::Cobblestone, &world),
+            &world.read_storage(),
+        );
+        state.chunk.insert(
+            entity::Entity::new_block_w(
+                Translation3f::from(Vector3f::new(2.0, 0.0, -2.0)).to_superset(),
+                BlockType::Cobblestone,
+                &world,
+            ),
+            &world.read_storage(),
+        );
+        state.chunk.insert(
+            entity::Entity::new_block_w(
+                Translation3f::from(Vector3f::new(-2.0, 1.0, -2.0)).to_superset(),
+                BlockType::Cobblestone,
+                &world,
+            ),
+            &world.read_storage(),
+        );
+        state.chunk.insert(
+            entity::Entity::new_block_w(
+                Translation3f::from(Vector3f::new(1.0, 0.0, -2.0)).to_superset(),
+                BlockType::Sandstone,
+                &world,
+            ),
+            &world.read_storage(),
+        );
+        state.chunk.insert(
+            entity::Entity::new_block_w(
+                Translation3f::from(Vector3f::new(1.0, -1.0, -2.0)).to_superset(),
+                BlockType::Sandstone,
+                &world,
+            ),
+            &world.read_storage(),
+        );
+        state.chunk.insert(
+            entity::Entity::new_block_w(
+                Translation3f::from(Vector3f::new(1.0, 1.0, -2.0)).to_superset(),
+                BlockType::Cobblestone,
+                &world,
+            ),
+            &world.read_storage(),
+        );
 
         world.add_resource(state);
         Ok(Game {

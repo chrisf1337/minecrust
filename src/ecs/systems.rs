@@ -1,5 +1,7 @@
 use crate::{
-    ecs::components::{AABBComponent, PrimitiveGeometryComponent, TransformComponent},
+    ecs::components::{
+        AABBComponent, BlockTypeComponent, PrimitiveGeometryComponent, TransformComponent,
+    },
     game::GameState,
     geometry::Ray,
     renderer::{RenderData, Renderer},
@@ -7,7 +9,7 @@ use crate::{
     utils::f32,
 };
 use specs::prelude::*;
-use std::{cell::RefCell, ops::DerefMut, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, ops::DerefMut, rc::Rc};
 use winit::VirtualKeyCode;
 
 const FRAME_TIME_SAMPLE_INTERVAL: f32 = 0.25;
@@ -119,9 +121,13 @@ impl<'a> System<'a> for RenderSystem {
         ReadStorage<'a, TransformComponent>,
         WriteStorage<'a, PrimitiveGeometryComponent>,
         WriteExpect<'a, GameState>,
+        ReadStorage<'a, BlockTypeComponent>,
     );
 
-    fn run(&mut self, (transform_storage, mut geometry, mut game_state): Self::SystemData) {
+    fn run(
+        &mut self,
+        (transform_storage, mut geometry, mut game_state, block_type_storage): Self::SystemData,
+    ) {
         let mut renderer = self.renderer.borrow_mut();
         let game_state = game_state.deref_mut();
         let GameState {
@@ -181,9 +187,14 @@ impl<'a> System<'a> for RenderSystem {
             }
         }
 
-        let mut vertices = vec![];
-        for (transform, geometry) in (&transform_storage, &mut geometry).join() {
-            vertices.extend(geometry.vtx_data(&transform.0));
+        let mut vertices = HashMap::new();
+        for (transform, geometry, block_type_component) in
+            (&transform_storage, &mut geometry, &block_type_storage).join()
+        {
+            vertices
+                .entry(block_type_component.0)
+                .or_insert_with(|| vec![])
+                .extend(geometry.vtx_data(&transform.0));
         }
 
         let selection_vertices = if let Some(highlighted) = highlighted {
