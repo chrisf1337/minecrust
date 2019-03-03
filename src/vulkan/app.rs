@@ -196,7 +196,7 @@ pub struct VulkanApp {
 
     transfer_command_pool: vk::CommandPool,
     descriptor_pool: vk::DescriptorPool,
-    push_const_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    push_const_cmd_bufs: Vec<vk::CommandBuffer>,
 
     // graphics
     graphics_command_pool: vk::CommandPool,
@@ -206,7 +206,7 @@ pub struct VulkanApp {
 
     graphics_staging_vertex_buffers: Vec<Buffer<Vertex3f>>,
     graphics_vertex_buffers: Vec<Buffer<Vertex3f>>,
-    graphics_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    graphics_draw_cmd_bufs: Vec<vk::CommandBuffer>,
 
     graphics_descriptor_sets: Vec<vk::DescriptorSet>,
     graphics_descriptor_set_layout: DescriptorSetLayout,
@@ -219,7 +219,7 @@ pub struct VulkanApp {
 
     text_staging_vertex_buffers: Vec<Buffer<TextVertex>>,
     text_vertex_buffers: Vec<Buffer<TextVertex>>,
-    text_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    text_draw_cmd_bufs: Vec<vk::CommandBuffer>,
 
     text_uniform_buffers: Vec<Buffer<UiUniforms>>,
 
@@ -234,7 +234,7 @@ pub struct VulkanApp {
 
     selection_staging_vertex_buffers: Vec<Buffer<Vertex3f>>,
     selection_vertex_buffers: Vec<Buffer<Vertex3f>>,
-    selection_draw_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    selection_draw_cmd_bufs: Vec<vk::CommandBuffer>,
 
     selection_descriptor_sets: Vec<vk::DescriptorSet>,
     selection_descriptor_set_layout: DescriptorSetLayout,
@@ -251,8 +251,8 @@ pub struct VulkanApp {
     crosshair_descriptor_sets: Vec<vk::DescriptorSet>,
     crosshair_descriptor_set_layout: DescriptorSetLayout,
 
-    render_pass_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
-    transfer_cmd_bufs: Vec<Option<vk::CommandBuffer>>,
+    render_pass_cmd_bufs: Vec<vk::CommandBuffer>,
+    transfer_cmd_bufs: Vec<vk::CommandBuffer>,
     take_ownership_cmd_buffers: Vec<vk::CommandBuffer>,
 
     textures: HashMap<String, Texture>,
@@ -549,9 +549,9 @@ impl VulkanApp {
             base.create_descriptor_sets()?;
             base.create_sync_objects()?;
 
+            // Make sure we init this after descriptors are initialized
             for i in 0..base.swapchain_len {
-                base.crosshair_draw_cmd_bufs
-                    .push(base.new_crosshair_draw_cmd_buf(i)?);
+                base.crosshair_draw_cmd_bufs[i] = base.new_crosshair_draw_cmd_buf(i)?;
             }
 
             base.copy_crosshair_vertices()?;
@@ -1097,19 +1097,7 @@ impl VulkanApp {
         index: usize,
         secondary_command_buffers: &[vk::CommandBuffer],
     ) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.render_pass_cmd_bufs[index] {
-            cmd_buf
-        } else {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.graphics_command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(1)
-                .build();
-            self.core
-                .device
-                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-        };
-
+        let cmd_buf = self.render_pass_cmd_bufs[index];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
             .build();
@@ -1152,8 +1140,6 @@ impl VulkanApp {
 
         self.core.device.cmd_end_render_pass(cmd_buf);
         self.core.device.end_command_buffer(cmd_buf)?;
-
-        self.render_pass_cmd_bufs[index] = Some(cmd_buf);
 
         Ok(cmd_buf)
     }
@@ -1209,19 +1195,7 @@ impl VulkanApp {
     }
 
     unsafe fn new_text_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.text_draw_cmd_bufs[index] {
-            cmd_buf
-        } else {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.graphics_command_pool)
-                .level(vk::CommandBufferLevel::SECONDARY)
-                .command_buffer_count(1)
-                .build();
-            self.core
-                .device
-                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-        };
-
+        let cmd_buf = self.text_draw_cmd_bufs[index];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .inheritance_info(
                 &vk::CommandBufferInheritanceInfo::builder()
@@ -1268,8 +1242,6 @@ impl VulkanApp {
 
         self.core.device.end_command_buffer(cmd_buf)?;
 
-        self.text_draw_cmd_bufs[index] = Some(cmd_buf);
-
         Ok(cmd_buf)
     }
 
@@ -1278,19 +1250,7 @@ impl VulkanApp {
         index: usize,
         selection_active: bool,
     ) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.transfer_cmd_bufs[index] {
-            cmd_buf
-        } else {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.transfer_command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(1)
-                .build();
-            self.core
-                .device
-                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-        };
-
+        let cmd_buf = self.transfer_cmd_bufs[index];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
             .build();
@@ -1353,8 +1313,6 @@ impl VulkanApp {
         );
 
         self.core.device.end_command_buffer(cmd_buf)?;
-
-        self.transfer_cmd_bufs[index] = Some(cmd_buf);
 
         Ok(cmd_buf)
     }
@@ -1455,20 +1413,8 @@ impl VulkanApp {
         Ok(())
     }
 
-    unsafe fn new_graphics_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.graphics_draw_cmd_bufs[index] {
-            cmd_buf
-        } else {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.graphics_command_pool)
-                .level(vk::CommandBufferLevel::SECONDARY)
-                .command_buffer_count(1)
-                .build();
-            self.core
-                .device
-                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-        };
-
+    fn new_graphics_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = self.graphics_draw_cmd_bufs[index];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .inheritance_info(
                 &vk::CommandBufferInheritanceInfo::builder()
@@ -1481,61 +1427,48 @@ impl VulkanApp {
                     | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
             )
             .build();
-        self.core
-            .device
-            .begin_command_buffer(cmd_buf, &begin_info)?;
 
-        self.core.device.cmd_bind_pipeline(
-            cmd_buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.graphics_pipeline,
-        );
-        self.core.device.cmd_bind_vertex_buffers(
-            cmd_buf,
-            0,
-            &[self.graphics_vertex_buffers[index].buffer()],
-            &[0],
-        );
-        self.core.device.cmd_bind_descriptor_sets(
-            cmd_buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.graphics_pipeline_layout,
-            0,
-            &[self.graphics_descriptor_sets[index]],
-            &[],
-        );
+        unsafe {
+            self.core
+                .device
+                .begin_command_buffer(cmd_buf, &begin_info)?;
 
-        self.core.device.cmd_draw(
-            cmd_buf,
-            self.graphics_staging_vertex_buffers[index].len as u32,
-            1,
-            0,
-            0,
-        );
+            self.core.device.cmd_bind_pipeline(
+                cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.graphics_pipeline,
+            );
+            self.core.device.cmd_bind_vertex_buffers(
+                cmd_buf,
+                0,
+                &[self.graphics_vertex_buffers[index].buffer()],
+                &[0],
+            );
+            self.core.device.cmd_bind_descriptor_sets(
+                cmd_buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.graphics_pipeline_layout,
+                0,
+                &[self.graphics_descriptor_sets[index]],
+                &[],
+            );
 
-        self.core.device.end_command_buffer(cmd_buf)?;
+            self.core.device.cmd_draw(
+                cmd_buf,
+                self.graphics_staging_vertex_buffers[index].len as u32,
+                1,
+                0,
+                0,
+            );
 
-        self.graphics_draw_cmd_bufs[index] = Some(cmd_buf);
+            self.core.device.end_command_buffer(cmd_buf)?;
+        }
 
         Ok(cmd_buf)
     }
 
     fn new_selection_draw_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.selection_draw_cmd_bufs[index] {
-            cmd_buf
-        } else {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.graphics_command_pool)
-                .level(vk::CommandBufferLevel::SECONDARY)
-                .command_buffer_count(1)
-                .build();
-            unsafe {
-                self.core
-                    .device
-                    .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-            }
-        };
-
+        let cmd_buf = self.selection_draw_cmd_bufs[index];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .inheritance_info(
                 &vk::CommandBufferInheritanceInfo::builder()
@@ -1585,23 +1518,11 @@ impl VulkanApp {
             self.core.device.end_command_buffer(cmd_buf)?;
         }
 
-        self.selection_draw_cmd_bufs[index] = Some(cmd_buf);
-
         Ok(cmd_buf)
     }
 
-    fn new_crosshair_draw_cmd_buf(&self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.graphics_command_pool)
-            .level(vk::CommandBufferLevel::SECONDARY)
-            .command_buffer_count(1)
-            .build();
-        let cmd_buf = unsafe {
-            self.core
-                .device
-                .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-        };
-
+    fn new_crosshair_draw_cmd_buf(&self, i: usize) -> VkResult<vk::CommandBuffer> {
+        let cmd_buf = self.crosshair_draw_cmd_bufs[i];
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .inheritance_info(
                 &vk::CommandBufferInheritanceInfo::builder()
@@ -1633,7 +1554,7 @@ impl VulkanApp {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.crosshair_pipeline_layout,
                 0,
-                &[self.crosshair_descriptor_sets[index]],
+                &[self.crosshair_descriptor_sets[i]],
                 &[],
             );
 
@@ -1652,21 +1573,7 @@ impl VulkanApp {
     }
 
     fn new_push_const_cmd_buf(&mut self, index: usize) -> VkResult<vk::CommandBuffer> {
-        let cmd_buf = if let Some(cmd_buf) = self.push_const_cmd_bufs[index] {
-            cmd_buf
-        } else {
-            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.graphics_command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(1)
-                .build();
-            unsafe {
-                self.core
-                    .device
-                    .allocate_command_buffers(&command_buffer_alloc_info)?[0]
-            }
-        };
-
+        let cmd_buf = self.push_const_cmd_bufs[index];
         let mut data = [0u8; std::mem::size_of::<UniformPushConstants>()];
         LittleEndian::write_f32_into(&self.uniform_push_constants.to_vec(), &mut data);
 
@@ -1688,14 +1595,10 @@ impl VulkanApp {
             self.core.device.end_command_buffer(cmd_buf)?;
         }
 
-        self.push_const_cmd_bufs[index] = Some(cmd_buf);
         Ok(cmd_buf)
     }
 
     unsafe fn create_buffers(&mut self) -> VkResult<()> {
-        self.render_pass_cmd_bufs = vec![Default::default(); self.swapchain_len];
-        self.push_const_cmd_bufs = vec![Default::default(); self.swapchain_len];
-
         for _ in 0..self.swapchain_len {
             // graphics
             let mut staging_buf = Buffer::new_init(
@@ -1758,13 +1661,57 @@ impl VulkanApp {
             self.text_uniform_buffers.push(uniform_buf);
         }
 
-        self.graphics_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
-        self.text_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
-        self.selection_draw_cmd_bufs = vec![Default::default(); self.swapchain_len];
+        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.graphics_command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(self.swapchain_len as u32 * 2)
+            .build();
+        let mut primary_command_buffers = self
+            .core
+            .device
+            .allocate_command_buffers(&command_buffer_alloc_info)?
+            .chunks_exact(self.swapchain_len)
+            .map(|s| s.to_vec())
+            .collect::<Vec<Vec<vk::CommandBuffer>>>();
+
+        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.graphics_command_pool)
+            .level(vk::CommandBufferLevel::SECONDARY)
+            .command_buffer_count(self.swapchain_len as u32 * 4)
+            .build();
+        let mut secondary_command_buffers = self
+            .core
+            .device
+            .allocate_command_buffers(&command_buffer_alloc_info)?
+            .chunks_exact(self.swapchain_len)
+            .map(|s| s.to_vec())
+            .collect::<Vec<Vec<vk::CommandBuffer>>>();
+
+        let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(self.transfer_command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(self.swapchain_len as u32)
+            .build();
+        let mut transfer_command_buffers = self
+            .core
+            .device
+            .allocate_command_buffers(&command_buffer_alloc_info)?
+            .chunks_exact(self.swapchain_len)
+            .map(|s| s.to_vec())
+            .collect::<Vec<Vec<vk::CommandBuffer>>>();
+
+        self.render_pass_cmd_bufs = primary_command_buffers.pop().unwrap();
+        self.push_const_cmd_bufs = primary_command_buffers.pop().unwrap();
+
+        self.graphics_draw_cmd_bufs = secondary_command_buffers.pop().unwrap();
+        self.text_draw_cmd_bufs = secondary_command_buffers.pop().unwrap();
+        self.selection_draw_cmd_bufs = secondary_command_buffers.pop().unwrap();
+        self.crosshair_draw_cmd_bufs = secondary_command_buffers.pop().unwrap();
+
+        self.transfer_cmd_bufs = transfer_command_buffers.pop().unwrap();
 
         self.crosshair_transfer_cmd_buf = self.new_crosshair_transfer_cmd_buf()?;
 
-        self.transfer_cmd_bufs = vec![Default::default(); self.swapchain_len];
         self.create_take_ownership_cmd_bufs()?;
 
         Ok(())
