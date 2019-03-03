@@ -3,12 +3,18 @@ use crate::{
     geometry::{UnitCube, AABB},
     types::prelude::*,
 };
-use specs::{world::Builder, ReadStorage, WriteStorage};
+use specs::{ReadStorage, WriteStorage};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Entity {
     pub entity: specs::Entity,
+}
+
+impl From<specs::Entity> for Entity {
+    fn from(entity: specs::Entity) -> Entity {
+        Entity { entity }
+    }
 }
 
 impl Entity {
@@ -76,11 +82,7 @@ impl Entity {
         )
     }
 
-    pub fn with_component<'a, T, D>(
-        self,
-        component: T,
-        storage: &'a mut specs::Storage<T, D>,
-    ) -> Self
+    pub fn with_component<T, D>(self, component: T, storage: &mut specs::Storage<T, D>) -> Self
     where
         T: specs::Component,
         D: DerefMut<Target = specs::storage::MaskedStorage<T>>,
@@ -91,7 +93,7 @@ impl Entity {
         self
     }
 
-    pub fn component<'a, T, D>(&self, storage: &'a specs::Storage<T, D>) -> &'a T
+    pub fn component<'a, T, D>(self, storage: &'a specs::Storage<T, D>) -> &'a T
     where
         T: specs::Component,
         D: Deref<Target = specs::storage::MaskedStorage<T>>,
@@ -100,7 +102,7 @@ impl Entity {
     }
 
     pub fn transform<'a, D>(
-        &self,
+        self,
         storage: &'a specs::Storage<TransformComponent, D>,
     ) -> &'a Transform3f
     where
@@ -125,7 +127,7 @@ impl Entity {
 
     /// Panics if the entity doesn't have a `PrimitiveGeometryComponent`.
     pub fn geometry<'a, D>(
-        &self,
+        self,
         storage: &'a specs::Storage<PrimitiveGeometryComponent, D>,
     ) -> &'a PrimitiveGeometryComponent
     where
@@ -148,7 +150,7 @@ impl Entity {
         }
     }
 
-    pub fn aabb<'a, D>(&self, storage: &'a specs::Storage<AABBComponent, D>) -> &'a AABB
+    pub fn aabb<'a, D>(self, storage: &'a specs::Storage<AABBComponent, D>) -> &'a AABB
     where
         D: Deref<Target = specs::storage::MaskedStorage<AABBComponent>>,
     {
@@ -163,11 +165,11 @@ impl Entity {
         }
     }
 
-    pub fn position(&self, storage: &ReadStorage<TransformComponent>) -> Point3f {
+    pub fn position(self, storage: &ReadStorage<TransformComponent>) -> Point3f {
         self.transform(storage).translation()
     }
 
-    pub fn position_aabb(&self, storage: &ReadStorage<AABBComponent>) -> Point3f {
+    pub fn position_aabb(self, storage: &ReadStorage<AABBComponent>) -> Point3f {
         self.aabb(storage).center
     }
 }

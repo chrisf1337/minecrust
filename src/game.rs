@@ -1,11 +1,12 @@
 use crate::{
     camera::{Camera, CameraAnimation},
+    chunk::Chunk,
     ecs::{
-        AABBComponent, AABBComponentSystem, PrimitiveGeometryComponent, RenderSystem,
+        self, AABBComponent, AABBComponentSystem, PrimitiveGeometryComponent, RenderSystem,
         SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
-    geometry::{Square, UnitCube, AABB},
+    geometry::{Square, UnitCube},
     na::Translation3,
     renderer::Renderer,
     types::prelude::*,
@@ -41,6 +42,7 @@ pub struct GameState {
     pub fps_sample: f32,
     pub camera_animation: Option<CameraAnimation>,
     pub highlighted: Option<Entity>,
+    pub chunk: Chunk,
 }
 
 pub struct Game<'a, 'b> {
@@ -60,7 +62,7 @@ impl<'a, 'b> Game<'a, 'b> {
         //     1.0,
         // );
 
-        let state = GameState {
+        let mut state = GameState {
             resized: false,
             camera,
             pressed_keys: HashMap::new(),
@@ -72,6 +74,7 @@ impl<'a, 'b> Game<'a, 'b> {
             // camera_animation: Some(camera_animation),
             camera_animation: None,
             highlighted: None,
+            chunk: Chunk::new(Point3f::origin(), 51),
         };
         let renderer = Rc::new(RefCell::new(VulkanApp::new(screen_width, screen_height)?));
 
@@ -79,11 +82,9 @@ impl<'a, 'b> Game<'a, 'b> {
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
         world.register::<AABBComponent>();
-        world.add_resource(state);
 
         let dispatcher = {
             let mut transform_storage = world.write_storage::<TransformComponent>();
-            let mut aabb_storage = world.write_storage::<AABBComponent>();
 
             DispatcherBuilder::new()
                 .with(
@@ -133,6 +134,17 @@ impl<'a, 'b> Game<'a, 'b> {
             .with(PrimitiveGeometryComponent::UnitCube(UnitCube::new(1.0)))
             .build();
 
+        state
+            .chunk
+            .insert(ecs::entity::Entity::from(cube1), &world.read_storage());
+        state
+            .chunk
+            .insert(ecs::entity::Entity::from(cube2), &world.read_storage());
+        state
+            .chunk
+            .insert(ecs::entity::Entity::from(cube3), &world.read_storage());
+
+        world.add_resource(state);
         Ok(Game {
             world,
             dispatcher,

@@ -11,6 +11,8 @@ pub trait Vector3fExt {
     }
 
     fn almost_eq(&self, v: &Vector3f) -> bool;
+
+    fn almost_is_int(&self) -> bool;
 }
 
 pub trait Vector3fUtilExt: Vector3fExt {
@@ -20,6 +22,10 @@ pub trait Vector3fUtilExt: Vector3fExt {
 impl Vector3fExt for Vector3f {
     fn almost_eq(&self, v: &Vector3f) -> bool {
         f32::almost_eq(self.x, v.x) && f32::almost_eq(self.y, v.y) && f32::almost_eq(self.z, v.z)
+    }
+
+    fn almost_is_int(&self) -> bool {
+        self.x.almost_is_int() && self.y.almost_is_int() && self.z.almost_is_int()
     }
 }
 

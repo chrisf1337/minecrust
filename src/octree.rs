@@ -1,7 +1,7 @@
 //! Probably not going to use this for selection for now.
 
 use crate::{
-    ecs::{entity::Entity, AABBComponent, TransformComponent},
+    ecs::{entity::Entity, AABBComponent},
     geometry::{Axis, Ray, AABB, AAP},
     types::prelude::*,
     utils::f32,
@@ -715,12 +715,9 @@ fn partition_children(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecs::PrimitiveGeometryComponent;
+    use crate::ecs::{PrimitiveGeometryComponent, TransformComponent};
     use alga::general::SubsetOf;
-    use rand::{
-        distributions::{Distribution, Uniform},
-        Rng,
-    };
+    use rand::{distributions::Uniform, Rng};
     use specs::World;
 
     struct RayIntersectionParams {
@@ -1358,7 +1355,10 @@ mod tests {
         );
         let bvh = Node::_new_from_entities(&entities, aabb, &world.read_storage(), 8);
         let entity = bvh._intersect_entity(
-            &Ray::new(Point3f::new(1.0, 0.0, 10.0), -Vector3f::z_axis().unwrap()),
+            &Ray::new(
+                Point3f::new(1.0, 0.0, 10.0),
+                -Vector3f::z_axis().into_inner(),
+            ),
             &world.read_storage(),
         );
         assert_eq!(entity, None);

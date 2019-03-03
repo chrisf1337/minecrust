@@ -129,34 +129,21 @@ impl<'a> System<'a> for AABBComponentSystem {
 pub struct SelectionSystem;
 
 impl<'a> System<'a> for SelectionSystem {
-    type SystemData = (
-        Entities<'a>,
-        ReadStorage<'a, AABBComponent>,
-        WriteExpect<'a, GameState>,
-    );
+    type SystemData = (ReadStorage<'a, AABBComponent>, WriteExpect<'a, GameState>);
 
-    fn run(&mut self, (entities, aabb_storage, mut game_state): Self::SystemData) {
+    fn run(&mut self, (aabb_storage, mut game_state): Self::SystemData) {
         let game_state = game_state.deref_mut();
         let GameState {
             ref camera,
             ref mut highlighted,
+            ref chunk,
             ..
         } = game_state;
 
         let ray = Ray::new(camera.pos, camera.direction().into_inner());
-        let mut new_selected: Option<(f32, Entity)> = None;
-        for (entity, aabb) in (&entities, &aabb_storage).join() {
-            if let Some((t, _)) = ray.intersect_aabb(&aabb.0) {
-                if let Some((intersect_t, _)) = new_selected {
-                    if t < intersect_t {
-                        new_selected = Some((t, entity));
-                    }
-                } else {
-                    new_selected = Some((t, entity));
-                }
-            }
-        }
-        *highlighted = new_selected.map(|(_, entity)| entity);
+        *highlighted = chunk
+            .intersected_entity(&ray, &aabb_storage)
+            .map(|e| e.entity);
     }
 }
 
