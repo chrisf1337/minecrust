@@ -2,9 +2,11 @@ mod color;
 mod f32ext;
 mod matrix3fext;
 mod matrix4fext;
+mod point2fext;
 mod point3fext;
 pub mod prelude;
 mod transform3fext;
+mod vector2fext;
 mod vector3fext;
 mod vector4fext;
 
@@ -26,3 +28,13 @@ pub type UnitQuaternionf = UnitQuaternion<f32>;
 pub type Transform2f = Affine2<f32>;
 pub type Transform3f = Affine3<f32>;
 pub type Translation3f = Translation3<f32>;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Face {
+    Top,
+    Front,
+    Left,
+    Right,
+    Back,
+    Bottom,
+}

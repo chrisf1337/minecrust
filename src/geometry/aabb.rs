@@ -4,16 +4,6 @@ use crate::{
 };
 use std::f32::INFINITY;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Face {
-    Top,
-    Front,
-    Left,
-    Right,
-    Back,
-    Bottom,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Octants {
     pub tfr: AABB,
