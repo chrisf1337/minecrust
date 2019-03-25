@@ -1,6 +1,6 @@
 use crate::{
     ecs::components::{
-        AABBComponent, BlockTypeComponent, PrimitiveGeometryComponent, TransformComponent,
+        AabbComponent, BlockComponent, PrimitiveGeometryComponent, TransformComponent,
     },
     game::GameState,
     geometry::Ray,
@@ -14,19 +14,19 @@ use winit::VirtualKeyCode;
 
 const FRAME_TIME_SAMPLE_INTERVAL: f32 = 0.25;
 
-pub struct AABBComponentSystem {
+pub struct AabbComponentSystem {
     reader_id: ReaderId<ComponentEvent>,
     inserted: BitSet,
     modified: BitSet,
 }
 
-impl AABBComponentSystem {
+impl AabbComponentSystem {
     pub fn new(
         reader_id: ReaderId<ComponentEvent>,
         inserted: BitSet,
         modified: BitSet,
-    ) -> AABBComponentSystem {
-        AABBComponentSystem {
+    ) -> AabbComponentSystem {
+        AabbComponentSystem {
             reader_id,
             inserted,
             modified,
@@ -34,12 +34,12 @@ impl AABBComponentSystem {
     }
 }
 
-impl<'a> System<'a> for AABBComponentSystem {
+impl<'a> System<'a> for AabbComponentSystem {
     type SystemData = (
         Entities<'a>,
         ReadStorage<'a, PrimitiveGeometryComponent>,
         ReadStorage<'a, TransformComponent>,
-        WriteStorage<'a, AABBComponent>,
+        WriteStorage<'a, AabbComponent>,
     );
 
     fn run(
@@ -70,7 +70,7 @@ impl<'a> System<'a> for AABBComponentSystem {
                 None => {
                     let aabb = geom.geometry().aabb(&transform.0);
                     aabb_storage
-                        .insert(entity, AABBComponent(aabb))
+                        .insert(entity, AabbComponent(aabb))
                         .unwrap_or_else(|err| panic!("{:?}", err));
                 }
             }
@@ -80,7 +80,7 @@ impl<'a> System<'a> for AABBComponentSystem {
             (&entities, &geom_storage, &transform_storage, &self.modified).join()
         {
             let aabb = geom.geometry().aabb(&transform.0);
-            *aabb_storage.get_mut(entity).unwrap() = AABBComponent(aabb);
+            *aabb_storage.get_mut(entity).unwrap() = AabbComponent(aabb);
         }
     }
 }
@@ -94,7 +94,7 @@ pub struct ChunkSystem {
 pub struct SelectionSystem;
 
 impl<'a> System<'a> for SelectionSystem {
-    type SystemData = (ReadStorage<'a, AABBComponent>, WriteExpect<'a, GameState>);
+    type SystemData = (ReadStorage<'a, AabbComponent>, WriteExpect<'a, GameState>);
 
     fn run(&mut self, (aabb_storage, mut game_state): Self::SystemData) {
         let game_state = game_state.deref_mut();
@@ -121,7 +121,7 @@ impl<'a> System<'a> for RenderSystem {
         ReadStorage<'a, TransformComponent>,
         WriteStorage<'a, PrimitiveGeometryComponent>,
         WriteExpect<'a, GameState>,
-        ReadStorage<'a, BlockTypeComponent>,
+        ReadStorage<'a, BlockComponent>,
     );
 
     fn run(

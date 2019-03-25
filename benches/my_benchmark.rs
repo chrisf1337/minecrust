@@ -1,8 +1,8 @@
 use alga::general::SubsetOf;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, ParameterizedBenchmark};
 use minecrust::{
-    ecs::{entity::Entity, AABBComponent, PrimitiveGeometryComponent, TransformComponent},
-    geometry::{Ray, AABB},
+    ecs::{entity::Entity, AabbComponent, PrimitiveGeometryComponent, TransformComponent},
+    geometry::{Aabb, Ray},
     octree::Node,
     types::prelude::*,
 };
@@ -11,7 +11,7 @@ use specs::prelude::*;
 
 fn new_world(n: usize, aabb_size: f32) -> BenchParams {
     let mut world = World::new();
-    world.register::<AABBComponent>();
+    world.register::<AabbComponent>();
     world.register::<PrimitiveGeometryComponent>();
     world.register::<TransformComponent>();
     let mut rng = rand::thread_rng();
@@ -78,7 +78,7 @@ fn bench_intersect_entity_funcs(c: &mut Criterion) {
                 || {
                     Node::new_from_entities(
                         &entities,
-                        AABB::new_min_max(
+                        Aabb::new_min_max(
                             Point3f::new(-aabb_size, -aabb_size, -aabb_size),
                             Point3f::new(aabb_size, aabb_size, aabb_size),
                         ),

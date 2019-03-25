@@ -1,197 +1,15 @@
 use crate::{
-    ecs::{entity::Entity, AABBComponent, TransformComponent},
+    ecs::{entity::Entity, AabbComponent, TransformComponent},
     geometry::Ray,
     types::prelude::*,
+    vector::{Vector2D, Vector3D},
+    vulkan::Vertex3f,
 };
 use specs::ReadStorage;
 use std::{
     collections::HashMap,
-    ops::{Deref, DerefMut, Index, IndexMut},
+    ops::{Index, IndexMut},
 };
-
-#[derive(Debug, Clone)]
-struct Vector2D<T> {
-    side_len: usize,
-    storage: Vec<T>,
-}
-
-impl<T: Clone> Vector2D<T> {
-    fn new(side_len: usize, t: T) -> Vector2D<T> {
-        assert_eq!(side_len % 2, 1, "side_len must be odd");
-        Vector2D {
-            side_len,
-            storage: vec![t; side_len * side_len],
-        }
-    }
-}
-
-impl<T: Clone + Default> Vector2D<T> {
-    fn new_default(side_len: usize) -> Vector2D<T> {
-        Vector2D::new(side_len, T::default())
-    }
-}
-
-impl<T> Index<usize> for Vector2D<T> {
-    type Output = T;
-
-    fn index(&self, i: usize) -> &Self::Output {
-        &self.storage[i]
-    }
-}
-
-impl<T> IndexMut<usize> for Vector2D<T> {
-    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-        &mut self.storage[i]
-    }
-}
-
-impl<T> Index<Vector2f> for Vector2D<T> {
-    type Output = T;
-
-    fn index(&self, i: Vector2f) -> &Self::Output {
-        assert!(i.almost_is_int());
-        &self[(i.x as i32, i.y as i32)]
-    }
-}
-
-impl<T> IndexMut<Vector2f> for Vector2D<T> {
-    fn index_mut(&mut self, i: Vector2f) -> &mut Self::Output {
-        assert!(i.almost_is_int());
-        &mut self[(i.x as i32, i.y as i32)]
-    }
-}
-
-impl<T> Index<(i32, i32)> for Vector2D<T> {
-    type Output = T;
-
-    fn index(&self, (x, y): (i32, i32)) -> &Self::Output {
-        let offset = (self.side_len as f32 / 2.0) as i32;
-        let x = (x + offset) as usize;
-        let y = (y + offset) as usize;
-        assert!(x < self.side_len);
-        assert!(y < self.side_len);
-        &self.storage[x + y * self.side_len]
-    }
-}
-
-impl<T> IndexMut<(i32, i32)> for Vector2D<T> {
-    fn index_mut(&mut self, (x, y): (i32, i32)) -> &mut Self::Output {
-        let offset = (self.side_len as f32 / 2.0) as i32;
-        let x = (x + offset) as usize;
-        let y = (y + offset) as usize;
-        assert!(x < self.side_len);
-        assert!(y < self.side_len);
-        &mut self.storage[x + y * self.side_len]
-    }
-}
-
-impl<T> Deref for Vector2D<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        &self.storage
-    }
-}
-
-impl<T> DerefMut for Vector2D<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.storage
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Vector3D<T> {
-    side_len: usize,
-    storage: Vec<T>,
-}
-
-impl<T: Clone> Vector3D<T> {
-    fn new(side_len: usize, t: T) -> Vector3D<T> {
-        assert_eq!(side_len % 2, 1, "side_len must be odd");
-        Vector3D {
-            side_len,
-            storage: vec![t; side_len * side_len * side_len],
-        }
-    }
-}
-
-impl<T: Clone + Default> Vector3D<T> {
-    fn new_default(side_len: usize) -> Vector3D<T> {
-        Vector3D::new(side_len, T::default())
-    }
-}
-
-impl<T> Index<usize> for Vector3D<T> {
-    type Output = T;
-
-    fn index(&self, i: usize) -> &Self::Output {
-        &self.storage[i]
-    }
-}
-
-impl<T> IndexMut<usize> for Vector3D<T> {
-    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-        &mut self.storage[i]
-    }
-}
-
-impl<T> Index<Vector3f> for Vector3D<T> {
-    type Output = T;
-
-    fn index(&self, i: Vector3f) -> &Self::Output {
-        assert!(i.almost_is_int());
-        &self[(i.x as i32, i.y as i32, i.z as i32)]
-    }
-}
-
-impl<T> IndexMut<Vector3f> for Vector3D<T> {
-    fn index_mut(&mut self, i: Vector3f) -> &mut Self::Output {
-        assert!(i.almost_is_int());
-        &mut self[(i.x as i32, i.y as i32, i.z as i32)]
-    }
-}
-
-impl<T> Index<(i32, i32, i32)> for Vector3D<T> {
-    type Output = T;
-
-    fn index(&self, (x, y, z): (i32, i32, i32)) -> &Self::Output {
-        let offset = (self.side_len as f32 / 2.0) as i32;
-        let x = (x + offset) as usize;
-        let y = (y + offset) as usize;
-        let z = (z + offset) as usize;
-        assert!(x < self.side_len);
-        assert!(y < self.side_len);
-        assert!(z < self.side_len);
-        &self.storage[x + y * self.side_len + z * self.side_len * self.side_len]
-    }
-}
-
-impl<T> IndexMut<(i32, i32, i32)> for Vector3D<T> {
-    fn index_mut(&mut self, (x, y, z): (i32, i32, i32)) -> &mut Self::Output {
-        let offset = (self.side_len as f32 / 2.0) as i32;
-        let x = (x + offset) as usize;
-        let y = (y + offset) as usize;
-        let z = (z + offset) as usize;
-        assert!(x < self.side_len);
-        assert!(y < self.side_len);
-        assert!(z < self.side_len);
-        &mut self.storage[x + y * self.side_len + z * self.side_len * self.side_len]
-    }
-}
-
-impl<T> Deref for Vector3D<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        &self.storage
-    }
-}
-
-impl<T> DerefMut for Vector3D<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.storage
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
@@ -216,7 +34,7 @@ impl Chunk {
     fn intersect(
         &self,
         ray: &Ray,
-        storage: &ReadStorage<AABBComponent>,
+        storage: &ReadStorage<AabbComponent>,
     ) -> Option<(usize, (f32, Point3f))> {
         ray.intersect_entities_optional(&self.entities, storage)
     }
@@ -224,25 +42,52 @@ impl Chunk {
     pub fn intersected_entity(
         &self,
         ray: &Ray,
-        storage: &ReadStorage<AABBComponent>,
+        storage: &ReadStorage<AabbComponent>,
     ) -> Option<Entity> {
         self.intersect(ray, storage)
             .map(|(i, _)| self.entities[i].unwrap())
     }
 
-    fn slices(&self, face: Face) -> Vec<Vector2D<Entity>> {
+    /// WIP: For face merging
+    fn slices(&self, face: Face) -> Vec<Vector2D<Option<Entity>>> {
         let mut slices = vec![];
-        // let mut seen = vec![];
+        let mut seen: Vector2D<Option<(usize, Entity)>> =
+            Vector2D::new_default(self.entities.side_len);
         let side_len = self.entities.side_len as i32;
-        // match face {
-        //     Face::Top => {
-        //         for x in -side_len as i32 / 2..=side_len / 2 {
-        //             for y in -side_len as i32 / 2..=side_len / 2 {}
-        //         }
-        //     }
-        // }
+        match face {
+            Face::Top => {
+                for x in -side_len as i32 / 2..=side_len / 2 {
+                    for z in -side_len as i32 / 2..=side_len / 2 {
+                        for (i, y) in (-side_len as i32 / 2..=side_len / 2).rev().enumerate() {
+                            if let Some(ety) = self.entities[(x, y, z)] {
+                                if seen[(x, z)].is_none() {
+                                    seen[(x, z)] = Some((i, ety))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => unimplemented!(),
+        }
         slices
     }
+
+    // fn vtx_data(&self, transform_storage: &ReadStorage<TransformComponent>) -> Vec<Vertex3f> {
+    //     let mut vertices = vec![];
+    //     let side_len = self.entities.side_len as i32;
+    //     for x in -side_len / 2..=side_len / 2 {
+    //         for y in -side_len / 2..=side_len / 2 {
+    //             for z in -side_len / 2..=side_len / 2 {
+    //                 if let Some(ety) = self[(x, y, z)] {
+    //                     match
+    //                     let transform = Translation3f::from(self.center + Vector3f::new(x as f32, y as f32, z as f32)).to_superset();
+    //                     vertices.extend_from_slice()
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 impl Index<(i32, i32, i32)> for Chunk {
@@ -297,7 +142,7 @@ mod tests {
     #[test]
     fn test_intersect_entities1() {
         let mut world = World::new();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
@@ -342,7 +187,7 @@ mod tests {
     #[test]
     fn test_intersect_entities2() {
         let mut world = World::new();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
@@ -395,7 +240,7 @@ mod tests {
     #[test]
     fn test_insert() {
         let mut world = World::new();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
@@ -421,7 +266,7 @@ mod tests {
     #[should_panic]
     fn test_insert_panic() {
         let mut world = World::new();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
@@ -440,5 +285,37 @@ mod tests {
     fn test_index_panic() {
         let chunk = Chunk::new(Point3f::origin(), 3);
         let _ = chunk[Point3f::new(0.0, -2.0, 0.0)];
+    }
+
+    #[test]
+    fn test_slice() {
+        let mut world = World::new();
+        world.register::<AabbComponent>();
+        world.register::<TransformComponent>();
+        world.register::<PrimitiveGeometryComponent>();
+
+        let mut chunk = Chunk::new(Point3f::origin(), 3);
+        let ety1 = Entity::new_unitcube_w(
+            Translation3f::from(Vector3f::new(-1.0, 1.0, -1.0)).to_superset(),
+            &world,
+        );
+        chunk.insert(ety1, &world.read_storage());
+        chunk.insert(
+            Entity::new_unitcube_w(
+                Translation3f::from(Vector3f::new(-1.0, 0.0, -1.0)).to_superset(),
+                &world,
+            ),
+            &world.read_storage(),
+        );
+        let ety2 = Entity::new_unitcube_w(
+            Translation3f::from(Vector3f::new(0.0, 0.0, -1.0)).to_superset(),
+            &world,
+        );
+        chunk.insert(ety2, &world.read_storage());
+
+        let mut vec = Vector2D::new_default(3);
+        vec[(-1, -1)] = Some(ety1);
+        vec[(0, -1)] = Some(ety2);
+        // assert_eq!(chunk.slices(Face::Top), vec);
     }
 }

@@ -31,10 +31,10 @@ pub type Translation3f = Translation3<f32>;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Face {
-    Top,
-    Front,
-    Left,
-    Right,
-    Back,
-    Bottom,
+    Top = 0,
+    Front = 1,
+    Left = 2,
+    Right = 3,
+    Back = 4,
+    Bottom = 5,
 }

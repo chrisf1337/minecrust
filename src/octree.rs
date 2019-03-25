@@ -1,8 +1,8 @@
 //! Probably not going to use this for selection for now.
 
 use crate::{
-    ecs::{entity::Entity, AABBComponent},
-    geometry::{Axis, Ray, AABB, AAP},
+    ecs::{entity::Entity, AabbComponent},
+    geometry::{Aabb, Axis, Ray, AAP},
     types::prelude::*,
     utils::f32,
 };
@@ -94,13 +94,13 @@ impl IndexMut<NodeOctantIndex> for NodeOctants {
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    aabb: AABB,
+    aabb: Aabb,
     children: Option<NodeOctants>,
     entities: Vec<Entity>,
 }
 
 impl Node {
-    pub fn empty(aabb: AABB) -> Node {
+    pub fn empty(aabb: Aabb) -> Node {
         Node {
             aabb,
             children: None,
@@ -110,16 +110,16 @@ impl Node {
 
     pub fn new_from_entities(
         entities: &[Entity],
-        aabb: AABB,
-        aabb_storage: &ReadStorage<AABBComponent>,
+        aabb: Aabb,
+        aabb_storage: &ReadStorage<AabbComponent>,
     ) -> Node {
         Node::_new_from_entities(entities, aabb, aabb_storage, TERMINAL_NODE_MAX_SIZE)
     }
 
     fn _new_from_entities(
         entities: &[Entity],
-        aabb: AABB,
-        aabb_storage: &ReadStorage<AABBComponent>,
+        aabb: Aabb,
+        aabb_storage: &ReadStorage<AabbComponent>,
         child_node_max_size: usize,
     ) -> Node {
         if entities.is_empty() {
@@ -152,7 +152,7 @@ impl Node {
     pub fn intersect_entity(
         &self,
         ray: &Ray,
-        aabb_storage: &ReadStorage<AABBComponent>,
+        aabb_storage: &ReadStorage<AabbComponent>,
     ) -> Option<Entity> {
         self._intersect_entity(ray, aabb_storage).map(|x| x.1)
     }
@@ -160,7 +160,7 @@ impl Node {
     fn _intersect_entity(
         &self,
         ray: &Ray,
-        aabb_storage: &ReadStorage<AABBComponent>,
+        aabb_storage: &ReadStorage<AabbComponent>,
     ) -> Option<(f32, Entity)> {
         if self.is_terminal() {
             return ray.closest_entity(&self.entities, aabb_storage);
@@ -251,7 +251,7 @@ impl Node {
     fn proc_subtree(
         &self,
         ray: &Ray,
-        aabb_storage: &ReadStorage<AABBComponent>,
+        aabb_storage: &ReadStorage<AabbComponent>,
         (tx0, ty0, tz0): (f32, f32, f32),
         (tx1, ty1, tz1): (f32, f32, f32),
         a: usize,
@@ -443,7 +443,7 @@ impl Node {
         choose_entity(entity, entity_candidate)
     }
 
-    pub fn insert(&mut self, entity: Entity, aabb_storage: &ReadStorage<AABBComponent>) {
+    pub fn insert(&mut self, entity: Entity, aabb_storage: &ReadStorage<AabbComponent>) {
         if self.is_terminal() {
             if self.entities.len() >= TERMINAL_NODE_MAX_SIZE {
                 let (node_entities, children) = partition_children(
@@ -619,7 +619,7 @@ fn octant_index(v: &Vector3f) -> NodeOctantIndex {
 fn partition_entities(
     entities: &[Entity],
     point: &Point3f,
-    aabb_storage: &ReadStorage<AABBComponent>,
+    aabb_storage: &ReadStorage<AabbComponent>,
 ) -> (Vec<Entity>, Octants) {
     let x_plane = AAP::new(Axis::X, point.x);
     let y_plane = AAP::new(Axis::Y, point.y);
@@ -642,8 +642,8 @@ fn partition_entities(
 
 fn partition_children(
     entities: &[Entity],
-    aabb: &AABB,
-    aabb_storage: &ReadStorage<AABBComponent>,
+    aabb: &Aabb,
+    aabb_storage: &ReadStorage<AabbComponent>,
     child_node_max_size: usize,
 ) -> (Vec<Entity>, NodeOctants) {
     let (node_entities, octants) = partition_entities(entities, &aabb.center, aabb_storage);
@@ -733,7 +733,7 @@ mod tests {
         tz1: f32,
     }
 
-    fn ray_intersection_params(ray: &Ray, aabb: &AABB) -> RayIntersectionParams {
+    fn ray_intersection_params(ray: &Ray, aabb: &Aabb) -> RayIntersectionParams {
         let mut a = 0;
         let mut ox = ray.origin.x;
         let mut oy = ray.origin.y;
@@ -851,7 +851,7 @@ mod tests {
 
     #[test]
     fn test_first_node_x() {
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
 
         // positive x
         let ray = Ray::new(Point3f::new(-10.0, -0.5, -0.5), Vector3f::x());
@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn test_first_node_y() {
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
 
         // positive y
         let ray = Ray::new(Point3f::new(-0.5, -10.0, -0.5), Vector3f::y());
@@ -993,7 +993,7 @@ mod tests {
 
     #[test]
     fn test_first_node_z() {
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
 
         // positive z
         let ray = Ray::new(Point3f::new(-0.5, -0.5, -10.0), Vector3f::z());
@@ -1066,7 +1066,7 @@ mod tests {
     fn test_partition_entities1() {
         let mut world = World::new();
         world.register::<TransformComponent>();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
         let entities = vec![
@@ -1147,7 +1147,7 @@ mod tests {
     fn test_partition_entities2() {
         let mut world = World::new();
         world.register::<TransformComponent>();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
         let mut entities = vec![];
@@ -1228,7 +1228,7 @@ mod tests {
         let mut world = World::new();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
 
         let mut entities = vec![];
         for x in -2..=2 {
@@ -1245,11 +1245,11 @@ mod tests {
 
         let bvh = Node::_new_from_entities(
             &entities,
-            AABB::merge_aabbs(
+            Aabb::merge_aabbs(
                 &entities
                     .iter()
                     .map(|e| *e.aabb(&world.read_storage()))
-                    .collect::<Vec<AABB>>(),
+                    .collect::<Vec<Aabb>>(),
             ),
             &world.read_storage(),
             2,
@@ -1275,7 +1275,7 @@ mod tests {
         let mut world = World::new();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
 
         let mut entities = vec![];
         for x in -4..=-2 {
@@ -1347,11 +1347,11 @@ mod tests {
             }
         }
 
-        let aabb = AABB::merge_aabbs(
+        let aabb = Aabb::merge_aabbs(
             &entities
                 .iter()
                 .map(|e| *e.aabb(&world.read_storage()))
-                .collect::<Vec<AABB>>(),
+                .collect::<Vec<Aabb>>(),
         );
         let bvh = Node::_new_from_entities(&entities, aabb, &world.read_storage(), 8);
         let entity = bvh._intersect_entity(
@@ -1406,7 +1406,7 @@ mod tests {
             let mut world = World::new();
             world.register::<PrimitiveGeometryComponent>();
             world.register::<TransformComponent>();
-            world.register::<AABBComponent>();
+            world.register::<AabbComponent>();
 
             let mut entities: Vec<Entity> = vec![];
             for _ in 0..1000 {
@@ -1421,7 +1421,7 @@ mod tests {
 
             let octree = Node::new_from_entities(
                 &entities,
-                AABB::new_min_max(
+                Aabb::new_min_max(
                     Point3f::new(-aabb_size, -aabb_size, -aabb_size),
                     Point3f::new(aabb_size, aabb_size, aabb_size),
                 ),

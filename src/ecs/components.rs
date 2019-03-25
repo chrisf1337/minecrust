@@ -1,6 +1,6 @@
 use crate::{
     block::BlockType,
-    geometry::{PrimitiveGeometry, Rectangle, Square, UnitCube, AABB},
+    geometry::{Aabb, PrimitiveGeometry, Rectangle, Square, UnitCube},
     types::prelude::*,
     vulkan::Vertex3f,
 };
@@ -41,7 +41,7 @@ impl PrimitiveGeometryComponent {
 }
 
 #[derive(Debug, Clone, Copy, Component)]
-pub struct AABBComponent(pub AABB);
+pub struct AabbComponent(pub Aabb);
 
 #[derive(Debug, Clone, Copy, Component)]
-pub struct BlockTypeComponent(pub BlockType);
+pub struct BlockComponent(pub BlockType);

@@ -1,6 +1,6 @@
 use crate::{
-    ecs::{entity::Entity, AABBComponent},
-    geometry::aabb::AABB,
+    ecs::{entity::Entity, AabbComponent},
+    geometry::aabb::Aabb,
     types::prelude::*,
 };
 use specs::ReadStorage;
@@ -24,7 +24,7 @@ impl Ray {
         self.origin + t * self.direction.as_ref()
     }
 
-    pub fn intersect_aabb(&self, aabb: &AABB) -> Option<(f32, Point3f)> {
+    pub fn intersect_aabb(&self, aabb: &Aabb) -> Option<(f32, Point3f)> {
         let min = aabb.min();
         let max = aabb.max();
 
@@ -67,7 +67,7 @@ impl Ray {
         }
     }
 
-    fn intersect_aabb_optional(&self, aabb: &Option<AABB>) -> Option<(f32, Point3f)> {
+    fn intersect_aabb_optional(&self, aabb: &Option<Aabb>) -> Option<(f32, Point3f)> {
         if let Some(aabb) = aabb {
             self.intersect_aabb(aabb)
         } else {
@@ -75,7 +75,7 @@ impl Ray {
         }
     }
 
-    pub fn intersect_aabbs(&self, aabbs: &[AABB]) -> Option<(usize, (f32, Point3f))> {
+    pub fn intersect_aabbs(&self, aabbs: &[Aabb]) -> Option<(usize, (f32, Point3f))> {
         let aabb = aabbs
             .iter()
             .enumerate()
@@ -84,7 +84,7 @@ impl Ray {
         Some(aabb)
     }
 
-    fn intersect_aabbs_optional(&self, aabbs: &[Option<AABB>]) -> Option<(usize, (f32, Point3f))> {
+    fn intersect_aabbs_optional(&self, aabbs: &[Option<Aabb>]) -> Option<(usize, (f32, Point3f))> {
         let aabb = aabbs
             .iter()
             .enumerate()
@@ -96,7 +96,7 @@ impl Ray {
     pub fn intersect_entity(
         &self,
         entity: Entity,
-        storage: &ReadStorage<AABBComponent>,
+        storage: &ReadStorage<AabbComponent>,
     ) -> Option<(f32, Point3f)> {
         self.intersect_aabb(entity.aabb(storage))
     }
@@ -104,7 +104,7 @@ impl Ray {
     pub fn intersect_entities(
         &self,
         entities: &[Entity],
-        storage: &ReadStorage<AABBComponent>,
+        storage: &ReadStorage<AabbComponent>,
     ) -> Option<(usize, (f32, Point3f))> {
         self.intersect_aabbs(
             &entities
@@ -117,7 +117,7 @@ impl Ray {
     pub fn intersect_entities_optional(
         &self,
         entities: &[Option<Entity>],
-        storage: &ReadStorage<AABBComponent>,
+        storage: &ReadStorage<AabbComponent>,
     ) -> Option<(usize, (f32, Point3f))> {
         self.intersect_aabbs_optional(
             &entities
@@ -130,7 +130,7 @@ impl Ray {
     pub fn closest_entity(
         &self,
         entities: &[Entity],
-        storage: &ReadStorage<AABBComponent>,
+        storage: &ReadStorage<AabbComponent>,
     ) -> Option<(f32, Entity)> {
         let (i, (t, _)) = self.intersect_entities(entities, storage)?;
         assert!(self.intersect_entity(entities[i], storage).is_some());
@@ -141,13 +141,13 @@ impl Ray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecs::{AABBComponent, PrimitiveGeometryComponent, TransformComponent};
+    use crate::ecs::{AabbComponent, PrimitiveGeometryComponent, TransformComponent};
     use specs::World;
 
     #[test]
     fn test_intersect1() {
         let r = Ray::new(Point3f::origin(), Vector3f::x());
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_some());
         assert!(intersection
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn test_intersect2() {
         let r = Ray::new(Point3f::new(-1.0, -0.5, 2.0), Vector3f::new(1.0, 0.0, -1.0));
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_some());
         println!("{:?}", intersection);
@@ -194,7 +194,7 @@ mod tests {
             Point3f::new(10.0, 10.0, 10.0),
             Vector3f::new(-1.0, -1.0, -1.0),
         );
-        let intersection = ray.intersect_aabbs(&[AABB::new_min_max(
+        let intersection = ray.intersect_aabbs(&[Aabb::new_min_max(
             Point3f::new(3.0, 3.0, 3.0),
             Point3f::new(4.0, 4.0, 4.0),
         )]);
@@ -204,14 +204,14 @@ mod tests {
     #[test]
     fn test_no_intersect1() {
         let r = Ray::new(Point3f::new(2.0, 0.0, 0.0), Vector3f::x());
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let intersection = r.intersect_aabb(&aabb);
         assert!(intersection.is_none());
     }
 
     #[test]
     fn test_no_intersect2() {
-        let aabb = AABB::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
+        let aabb = Aabb::new_min_max(Point3f::new(-1.0, -1.0, -1.0), Point3f::new(1.0, 1.0, 1.0));
         let dir = Vector3f::new(0.99, 0.0, 1.0);
         let r = Ray::new(Point3f::new(0.0, 0.0, 2.0), dir);
         assert_eq!(r.intersect_aabb(&aabb), None);
@@ -222,8 +222,8 @@ mod tests {
         let r = Ray::new(Point3f::new(-2.0, 0.5, -0.5), Vector3f::x());
         let intersection = r
             .intersect_aabbs(&[
-                AABB::new_min_max(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
-                AABB::new_min_max(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
+                Aabb::new_min_max(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
+                Aabb::new_min_max(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ])
             .unwrap();
         assert_eq!(intersection.0, 1);
@@ -234,8 +234,8 @@ mod tests {
         let r = Ray::new(Point3f::new(-2.0, 1.5, -0.5), Vector3f::x());
         assert_eq!(
             r.intersect_aabbs(&[
-                AABB::new_min_max(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
-                AABB::new_min_max(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
+                Aabb::new_min_max(Point3f::new(0.0, 0.0, -1.0), Point3f::new(1.0, 1.0, 0.0)),
+                Aabb::new_min_max(Point3f::new(-1.0, 0.0, -1.0), Point3f::new(0.0, 1.0, 0.0)),
             ]),
             None
         );
@@ -245,7 +245,7 @@ mod tests {
     fn test_closest_entity() {
         let mut world = World::new();
         world.register::<TransformComponent>();
-        world.register::<AABBComponent>();
+        world.register::<AabbComponent>();
         world.register::<PrimitiveGeometryComponent>();
 
         let r = Ray::new(Point3f::origin(), Vector3f::x());

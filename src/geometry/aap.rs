@@ -1,4 +1,4 @@
-use crate::{geometry::AABB, types::prelude::*, utils::f32};
+use crate::{geometry::Aabb, types::prelude::*, utils::f32};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Axis {
@@ -19,7 +19,7 @@ impl AAP {
         AAP { axis, intercept }
     }
 
-    pub fn intersects_aabb(&self, aabb: &AABB) -> bool {
+    pub fn intersects_aabb(&self, aabb: &Aabb) -> bool {
         let intercept_pt = self.intercept_pt();
         let normal = match self.axis {
             Axis::X => Vector3f::x_axis(),
@@ -53,21 +53,21 @@ mod tests {
     #[test]
     fn test_intersects_aabb() {
         let aap = AAP::new(Axis::X, 2.0);
-        assert!(aap.intersects_aabb(&AABB::new_min_max(
+        assert!(aap.intersects_aabb(&Aabb::new_min_max(
             Point3f::new(1.0, 0.0, 0.0),
             Point3f::new(3.0, 1.0, 1.0)
         )));
-        assert!(!aap.intersects_aabb(&AABB::new_min_max(
+        assert!(!aap.intersects_aabb(&Aabb::new_min_max(
             Point3f::new(1.0, 0.0, 0.0),
             Point3f::new(1.5, 1.0, 1.0)
         )));
 
         let aap = AAP::new(Axis::X, -2.0);
-        assert!(aap.intersects_aabb(&AABB::new_min_max(
+        assert!(aap.intersects_aabb(&Aabb::new_min_max(
             Point3f::new(-1.0, 0.0, 0.0),
             Point3f::new(-3.0, 1.0, 1.0)
         )));
-        assert!(!aap.intersects_aabb(&AABB::new_min_max(
+        assert!(!aap.intersects_aabb(&Aabb::new_min_max(
             Point3f::new(-1.0, 0.0, 0.0),
             Point3f::new(-1.5, 1.0, 1.0)
         )));

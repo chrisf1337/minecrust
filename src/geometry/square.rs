@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{rectangle::Rectangle, PrimitiveGeometry, AABB},
+    geometry::{rectangle::Rectangle, Aabb, PrimitiveGeometry},
     types::prelude::*,
     vulkan::Vertex3f,
 };
@@ -22,11 +22,11 @@ impl PrimitiveGeometry for Square {
         self.rect.vtx_data(transform)
     }
 
-    fn vertices(&self, transform: &Transform3f) -> Vec<Point3f> {
-        self.rect.vertices(transform)
+    fn vtx_pts(&self, transform: &Transform3f) -> Vec<Point3f> {
+        self.rect.vtx_pts(transform)
     }
 
-    fn aabb(&self, transform: &Transform3f) -> AABB {
+    fn aabb(&self, transform: &Transform3f) -> Aabb {
         self.rect.aabb(transform)
     }
 }
@@ -42,7 +42,7 @@ mod tests {
     fn test_transform1() {
         let s = Square::new(1.0);
         let t = Translation3::from(Vector3f::new(0.0, 2.0, 0.0));
-        let vertices = s.vertices(&t.to_superset());
+        let vertices = s.vtx_pts(&t.to_superset());
         assert!(vertices[0].almost_eq(&Point3f::new(-0.5, 2.0, -0.5)));
         assert!(vertices[1].almost_eq(&Point3f::new(-0.5, 2.0, 0.5)));
         assert!(vertices[2].almost_eq(&Point3f::new(0.5, 2.0, 0.5)));
@@ -56,7 +56,7 @@ mod tests {
             Translation3::from(Vector3f::new(0.0, 0.0, 0.5)),
             Rotation3::from_axis_angle(&Vector3f::x_axis(), ::std::f32::consts::FRAC_PI_2),
         );
-        let vertices = s.vertices(&t.to_superset());
+        let vertices = s.vtx_pts(&t.to_superset());
         assert!(vertices[0].almost_eq(&Point3f::new(-0.5, 0.5, 0.5)));
         assert!(vertices[1].almost_eq(&Point3f::new(-0.5, -0.5, 0.5)));
         assert!(vertices[2].almost_eq(&Point3f::new(0.5, -0.5, 0.5)));

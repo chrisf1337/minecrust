@@ -4,7 +4,7 @@
 #![allow(
     clippy::too_many_arguments,
     clippy::type_complexity,
-    clippy::cyclomatic_complexity
+    clippy::cognitive_complexity
 )]
 
 use nalgebra as na;
@@ -22,5 +22,6 @@ pub mod octree;
 pub mod renderer;
 pub mod types;
 pub mod vulkan;
+mod vector;
 
 pub use crate::types::prelude::*;

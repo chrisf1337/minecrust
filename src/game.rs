@@ -3,7 +3,7 @@ use crate::{
     camera::{Camera, CameraAnimation},
     chunk::Chunk,
     ecs::{
-        entity, AABBComponent, AABBComponentSystem, BlockTypeComponent, PrimitiveGeometryComponent,
+        entity, AabbComponent, AabbComponentSystem, BlockComponent, PrimitiveGeometryComponent,
         RenderSystem, SelectionSystem, TransformComponent,
     },
     event_handlers::on_device_event,
@@ -82,23 +82,23 @@ impl<'a, 'b> Game<'a, 'b> {
         let mut world = World::new();
         world.register::<TransformComponent>();
         world.register::<PrimitiveGeometryComponent>();
-        world.register::<AABBComponent>();
-        world.register::<BlockTypeComponent>();
+        world.register::<AabbComponent>();
+        world.register::<BlockComponent>();
 
         let dispatcher = {
             let mut transform_storage = world.write_storage::<TransformComponent>();
 
             DispatcherBuilder::new()
                 .with(
-                    AABBComponentSystem::new(
+                    AabbComponentSystem::new(
                         transform_storage.register_reader(),
                         BitSet::new(),
                         BitSet::new(),
                     ),
-                    "AABBComponentSystem",
+                    "AabbComponentSystem",
                     &[],
                 )
-                .with(SelectionSystem, "SelectionSystem", &["AABBComponentSystem"])
+                .with(SelectionSystem, "SelectionSystem", &["AabbComponentSystem"])
                 .with_thread_local(RenderSystem {
                     renderer: renderer.clone(),
                 })
@@ -112,7 +112,7 @@ impl<'a, 'b> Game<'a, 'b> {
                 Translation3::from(Vector3f::new(0.0, -5.0, 0.0)).to_superset(),
             ))
             .with(PrimitiveGeometryComponent::Square(Square::new(100.0)))
-            .with(BlockTypeComponent(BlockType::Cobblestone))
+            .with(BlockComponent(BlockType::Cobblestone))
             .build();
 
         state.chunk.insert(

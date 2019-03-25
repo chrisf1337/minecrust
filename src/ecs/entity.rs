@@ -1,7 +1,7 @@
 use crate::{
     block::BlockType,
-    ecs::{AABBComponent, BlockTypeComponent, PrimitiveGeometryComponent, TransformComponent},
-    geometry::{UnitCube, AABB},
+    ecs::{AabbComponent, BlockComponent, PrimitiveGeometryComponent, TransformComponent},
+    geometry::{Aabb, UnitCube},
     types::prelude::*,
 };
 use specs::{ReadStorage, WriteStorage};
@@ -30,7 +30,7 @@ impl Entity {
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
-        aabb_storage: &mut WriteStorage<AABBComponent>,
+        aabb_storage: &mut WriteStorage<AabbComponent>,
     ) -> Entity {
         let entity = Entity::new_with_transform(
             entity.component(transform_storage).0,
@@ -38,7 +38,7 @@ impl Entity {
             transform_storage,
         );
         entity.set_geometry(geom_storage, entity.geometry(geom_storage).clone());
-        entity.set_aabb(aabb_storage, AABBComponent(*entity.aabb(aabb_storage)));
+        entity.set_aabb(aabb_storage, AabbComponent(*entity.aabb(aabb_storage)));
         entity
     }
 
@@ -58,15 +58,15 @@ impl Entity {
         transform: Transform3f,
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
-        aabb_storage: &mut WriteStorage<AABBComponent>,
+        aabb_storage: &mut WriteStorage<AabbComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
-        let aabb = AABB::new(Point3f::origin(), Vector3f::new(0.5, 0.5, 0.5)).transform(&transform);
+        let aabb = Aabb::new(Point3f::origin(), Vector3f::new(0.5, 0.5, 0.5)).transform(&transform);
         let entity = entities
             .build_entity()
             .with(TransformComponent(transform), transform_storage)
-            .with(AABBComponent(aabb), aabb_storage)
+            .with(AabbComponent(aabb), aabb_storage)
             .with(PrimitiveGeometryComponent::UnitCube(unitcube), geom_storage)
             .build();
         Entity { entity }
@@ -87,9 +87,9 @@ impl Entity {
         block_type: BlockType,
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
-        aabb_storage: &mut WriteStorage<AABBComponent>,
+        aabb_storage: &mut WriteStorage<AabbComponent>,
         geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
-        block_type_storage: &mut WriteStorage<BlockTypeComponent>,
+        block_type_storage: &mut WriteStorage<BlockComponent>,
     ) -> Entity {
         Entity::new_unitcube(
             transform,
@@ -98,7 +98,7 @@ impl Entity {
             aabb_storage,
             geom_storage,
         )
-        .with_component(BlockTypeComponent(block_type), block_type_storage)
+        .with_component(BlockComponent(block_type), block_type_storage)
     }
 
     pub fn new_block_w(
@@ -185,14 +185,14 @@ impl Entity {
         }
     }
 
-    pub fn aabb<'a, D>(self, storage: &'a specs::Storage<AABBComponent, D>) -> &'a AABB
+    pub fn aabb<'a, D>(self, storage: &'a specs::Storage<AabbComponent, D>) -> &'a Aabb
     where
-        D: Deref<Target = specs::storage::MaskedStorage<AABBComponent>>,
+        D: Deref<Target = specs::storage::MaskedStorage<AabbComponent>>,
     {
         &self.component(storage).0
     }
 
-    pub fn set_aabb(self, storage: &mut WriteStorage<AABBComponent>, aabb: AABBComponent) {
+    pub fn set_aabb(self, storage: &mut WriteStorage<AabbComponent>, aabb: AabbComponent) {
         if let Some(bb) = storage.get_mut(self.entity) {
             *bb = aabb
         } else {
@@ -204,7 +204,7 @@ impl Entity {
         self.transform(storage).translation()
     }
 
-    pub fn position_aabb(self, storage: &ReadStorage<AABBComponent>) -> Point3f {
+    pub fn position_aabb(self, storage: &ReadStorage<AabbComponent>) -> Point3f {
         self.aabb(storage).center
     }
 }
