@@ -29,7 +29,6 @@ impl Entity {
         entity: Entity,
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
-        geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
         aabb_storage: &mut WriteStorage<AabbComponent>,
     ) -> Entity {
         let entity = Entity::new_with_transform(
@@ -37,7 +36,6 @@ impl Entity {
             entities,
             transform_storage,
         );
-        entity.set_geometry(geom_storage, entity.geometry(geom_storage).clone());
         entity.set_aabb(aabb_storage, AabbComponent(*entity.aabb(aabb_storage)));
         entity
     }
@@ -59,7 +57,6 @@ impl Entity {
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         aabb_storage: &mut WriteStorage<AabbComponent>,
-        geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
     ) -> Entity {
         let unitcube = UnitCube::new(1.0);
         let aabb = Aabb::new(Point3f::origin(), Vector3f::new(0.5, 0.5, 0.5)).transform(&transform);
@@ -67,7 +64,6 @@ impl Entity {
             .build_entity()
             .with(TransformComponent(transform), transform_storage)
             .with(AabbComponent(aabb), aabb_storage)
-            .with(PrimitiveGeometryComponent::UnitCube(unitcube), geom_storage)
             .build();
         Entity { entity }
     }
@@ -76,7 +72,6 @@ impl Entity {
         Entity::new_unitcube(
             transform,
             &world.entities(),
-            &mut world.write_storage(),
             &mut world.write_storage(),
             &mut world.write_storage(),
         )
@@ -88,17 +83,15 @@ impl Entity {
         entities: &specs::Entities,
         transform_storage: &mut WriteStorage<TransformComponent>,
         aabb_storage: &mut WriteStorage<AabbComponent>,
-        geom_storage: &mut WriteStorage<PrimitiveGeometryComponent>,
-        block_type_storage: &mut WriteStorage<BlockComponent>,
+        block_storage: &mut WriteStorage<BlockComponent>,
     ) -> Entity {
         Entity::new_unitcube(
             transform,
             entities,
             transform_storage,
             aabb_storage,
-            geom_storage,
         )
-        .with_component(BlockComponent(block_type), block_type_storage)
+        .with_component(BlockComponent(block_type), block_storage)
     }
 
     pub fn new_block_w(
@@ -110,7 +103,6 @@ impl Entity {
             transform,
             block_type,
             &world.entities(),
-            &mut world.write_storage(),
             &mut world.write_storage(),
             &mut world.write_storage(),
             &mut world.write_storage(),

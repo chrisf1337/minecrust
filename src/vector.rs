@@ -1,5 +1,5 @@
 use crate::types::prelude::*;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::{iter::IntoIterator, ops::{Deref, DerefMut, Index, IndexMut}};
 
 #[derive(Debug, Clone)]
 pub struct Vector2D<T> {
@@ -200,3 +200,21 @@ impl<T: PartialEq> PartialEq for Vector3D<T> {
 }
 
 impl<T: Eq> Eq for Vector3D<T> {}
+
+impl<T> IntoIterator for Vector3D<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.storage.into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Vector3D<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.storage.iter()
+    }
+}

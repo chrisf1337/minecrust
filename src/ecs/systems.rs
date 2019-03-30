@@ -3,7 +3,7 @@ use crate::{
         AabbComponent, BlockComponent, PrimitiveGeometryComponent, TransformComponent,
     },
     game::GameState,
-    geometry::Ray,
+    geometry::{Ray, UnitCube, PrimitiveGeometry},
     renderer::{RenderData, Renderer},
     types::prelude::*,
     utils::f32,
@@ -141,6 +141,7 @@ impl<'a> System<'a> for RenderSystem {
             ref mut fps_last_sampled_time,
             ref mut fps_sample,
             ref highlighted,
+            ref chunk,
             ..
         } = game_state;
 
@@ -197,10 +198,17 @@ impl<'a> System<'a> for RenderSystem {
                 .extend(geometry.vtx_data(&transform.0));
         }
 
+        for (block_type, vtxs) in chunk.vtx_data(&transform_storage, &block_type_storage) {
+            vertices
+                .entry(block_type)
+                .or_insert_with(|| vec![])
+                .extend(vtxs);
+        }
+
         let selection_vertices = if let Some(highlighted) = highlighted {
             let transform = transform_storage.get(*highlighted).unwrap();
-            let geometry = geometry.get(*highlighted).unwrap();
-            Some(geometry.vtx_data(&transform.0))
+            let cube = UnitCube::new(1.0);
+            Some(cube.vtx_data(&transform.0))
         } else {
             None
         };

@@ -1,6 +1,7 @@
 use crate::{
-    ecs::{entity::Entity, AabbComponent, TransformComponent},
-    geometry::Ray,
+    block::BlockType,
+    ecs::{entity::Entity, AabbComponent, BlockComponent, TransformComponent},
+    geometry::{PrimitiveGeometry, Ray, UnitCube},
     types::prelude::*,
     vector::{Vector2D, Vector3D},
     vulkan::Vertex3f,
@@ -50,7 +51,7 @@ impl Chunk {
 
     /// WIP: For face merging
     fn slices(&self, face: Face) -> Vec<Vector2D<Option<Entity>>> {
-        let mut slices = vec![];
+        let slices = vec![];
         let mut seen: Vector2D<Option<(usize, Entity)>> =
             Vector2D::new_default(self.entities.side_len);
         let side_len = self.entities.side_len as i32;
@@ -73,21 +74,25 @@ impl Chunk {
         slices
     }
 
-    // fn vtx_data(&self, transform_storage: &ReadStorage<TransformComponent>) -> Vec<Vertex3f> {
-    //     let mut vertices = vec![];
-    //     let side_len = self.entities.side_len as i32;
-    //     for x in -side_len / 2..=side_len / 2 {
-    //         for y in -side_len / 2..=side_len / 2 {
-    //             for z in -side_len / 2..=side_len / 2 {
-    //                 if let Some(ety) = self[(x, y, z)] {
-    //                     match
-    //                     let transform = Translation3f::from(self.center + Vector3f::new(x as f32, y as f32, z as f32)).to_superset();
-    //                     vertices.extend_from_slice()
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+    pub fn vtx_data(
+        &self,
+        transform_storage: &ReadStorage<TransformComponent>,
+        block_storage: &ReadStorage<BlockComponent>,
+    ) -> HashMap<BlockType, Vec<Vertex3f>> {
+        let cube = UnitCube::new(1.0);
+        let mut vertices = HashMap::new();
+        for &entity in &self.entities {
+            if let Some(entity) = entity {
+                let block_type = block_storage.get(entity.entity).unwrap();
+                let transform = transform_storage.get(entity.entity).unwrap();
+                vertices
+                    .entry(block_type.0)
+                    .or_insert_with(|| vec![])
+                    .extend(cube.vtx_data(&transform.0));
+            }
+        }
+        vertices
+    }
 }
 
 impl Index<(i32, i32, i32)> for Chunk {

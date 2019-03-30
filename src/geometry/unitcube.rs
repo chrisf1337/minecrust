@@ -61,7 +61,7 @@ impl PrimitiveGeometry for UnitCube {
         let sq = Square::new(self.side_len);
         let mut vertices = vec![];
         for tr in &self.transforms {
-            vertices.extend_from_slice(&sq.vtx_data(&(transform * tr)));
+            vertices.extend(sq.vtx_data(&(transform * tr)));
         }
         vertices
     }
