@@ -3,99 +3,17 @@
 use crate::{
     ecs::{entity::Entity, AabbComponent},
     geometry::{Aabb, Axis, Ray, AAP},
-    types::prelude::*,
+    types::{prelude::*, Octants, OctantIndex},
     utils::f32,
 };
 use specs::ReadStorage;
-use std::ops::{Index, IndexMut};
 
 const TERMINAL_NODE_MAX_SIZE: usize = 8;
-
-#[derive(Clone, Debug)]
-struct NodeOctants {
-    /// 3
-    tfl: Box<Node>,
-    /// 7
-    tfr: Box<Node>,
-    /// 2
-    tbl: Box<Node>,
-    /// 6
-    tbr: Box<Node>,
-
-    /// 1
-    bfl: Box<Node>,
-    /// 5
-    bfr: Box<Node>,
-    /// 0
-    bbl: Box<Node>,
-    /// 4
-    bbr: Box<Node>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NodeOctantIndex {
-    Tfl = 3,
-    Tfr = 7,
-    Tbl = 2,
-    Tbr = 6,
-    Bfl = 1,
-    Bfr = 5,
-    Bbl = 0,
-    Bbr = 4,
-}
-
-impl Index<usize> for NodeOctants {
-    type Output = Box<Node>;
-
-    fn index(&self, i: usize) -> &Self::Output {
-        match i {
-            0 => &self.bbl,
-            1 => &self.bfl,
-            2 => &self.tbl,
-            3 => &self.tfl,
-            4 => &self.bbr,
-            5 => &self.bfr,
-            6 => &self.tbr,
-            7 => &self.tfr,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl Index<NodeOctantIndex> for NodeOctants {
-    type Output = Box<Node>;
-
-    fn index(&self, i: NodeOctantIndex) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-
-impl IndexMut<usize> for NodeOctants {
-    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-        match i {
-            0 => &mut self.bbl,
-            1 => &mut self.bfl,
-            2 => &mut self.tbl,
-            3 => &mut self.tfl,
-            4 => &mut self.bbr,
-            5 => &mut self.bfr,
-            6 => &mut self.tbr,
-            7 => &mut self.tfr,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl IndexMut<NodeOctantIndex> for NodeOctants {
-    fn index_mut(&mut self, i: NodeOctantIndex) -> &mut Self::Output {
-        &mut self[i as usize]
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Node {
     aabb: Aabb,
-    children: Option<NodeOctants>,
+    children: Option<Octants<Box<Node>>>,
     entities: Vec<Entity>,
 }
 
@@ -515,104 +433,29 @@ fn choose_entity(a: Option<(f32, Entity)>, b: Option<(f32, Entity)>) -> Option<(
     }
 }
 
-#[derive(Default, Debug, Clone)]
-struct Octants {
-    tfr: Vec<Entity>,
-    tfl: Vec<Entity>,
-    tbr: Vec<Entity>,
-    tbl: Vec<Entity>,
-    bfr: Vec<Entity>,
-    bfl: Vec<Entity>,
-    bbr: Vec<Entity>,
-    bbl: Vec<Entity>,
-}
-
-impl PartialEq for Octants {
-    fn eq(&self, other: &Octants) -> bool {
-        self.tfr.eq(&other.tfr)
-            && self.tfl.eq(&other.tfl)
-            && self.tbr.eq(&other.tbr)
-            && self.tbl.eq(&other.tbl)
-            && self.bfr.eq(&other.bfr)
-            && self.bfl.eq(&other.bfl)
-            && self.bbr.eq(&other.bbr)
-            && self.bbl.eq(&other.bbl)
-    }
-}
-
-impl Eq for Octants {}
-
-impl Index<usize> for Octants {
-    type Output = Vec<Entity>;
-
-    fn index(&self, i: usize) -> &Self::Output {
-        match i {
-            0 => &self.bbl,
-            1 => &self.bfl,
-            2 => &self.tbl,
-            3 => &self.tfl,
-            4 => &self.bbr,
-            5 => &self.bfr,
-            6 => &self.tbr,
-            7 => &self.tfr,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl Index<NodeOctantIndex> for Octants {
-    type Output = Vec<Entity>;
-
-    fn index(&self, i: NodeOctantIndex) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-
-impl IndexMut<usize> for Octants {
-    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-        match i {
-            0 => &mut self.bbl,
-            1 => &mut self.bfl,
-            2 => &mut self.tbl,
-            3 => &mut self.tfl,
-            4 => &mut self.bbr,
-            5 => &mut self.bfr,
-            6 => &mut self.tbr,
-            7 => &mut self.tfr,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl IndexMut<NodeOctantIndex> for Octants {
-    fn index_mut(&mut self, i: NodeOctantIndex) -> &mut Self::Output {
-        &mut self[i as usize]
-    }
-}
-
-fn octant_index(v: &Vector3f) -> NodeOctantIndex {
+fn octant_index(v: &Vector3f) -> OctantIndex {
     if v.x >= 0.0 {
         if v.y >= 0.0 {
             if v.z >= 0.0 {
-                NodeOctantIndex::Tfr
+                OctantIndex::Tfr
             } else {
-                NodeOctantIndex::Tbr
+                OctantIndex::Tbr
             }
         } else if v.z >= 0.0 {
-            NodeOctantIndex::Bfr
+            OctantIndex::Bfr
         } else {
-            NodeOctantIndex::Bbr
+            OctantIndex::Bbr
         }
     } else if v.y >= 0.0 {
         if v.z >= 0.0 {
-            NodeOctantIndex::Tfl
+            OctantIndex::Tfl
         } else {
-            NodeOctantIndex::Tbl
+            OctantIndex::Tbl
         }
     } else if v.z >= 0.0 {
-        NodeOctantIndex::Bfl
+        OctantIndex::Bfl
     } else {
-        NodeOctantIndex::Bbl
+        OctantIndex::Bbl
     }
 }
 
@@ -620,12 +463,12 @@ fn partition_entities(
     entities: &[Entity],
     point: &Point3f,
     aabb_storage: &ReadStorage<AabbComponent>,
-) -> (Vec<Entity>, Octants) {
+) -> (Vec<Entity>, Octants<Vec<Entity>>) {
     let x_plane = AAP::new(Axis::X, point.x);
     let y_plane = AAP::new(Axis::Y, point.y);
     let z_plane = AAP::new(Axis::Z, point.z);
     let mut node_entities = vec![];
-    let mut oct_partition = Octants::default();
+    let mut oct_partition: Octants<Vec<Entity>> = Octants::default();
     for &entity in entities {
         let aabb = entity.aabb(aabb_storage);
         if x_plane.intersects_aabb(&aabb)
@@ -645,7 +488,7 @@ fn partition_children(
     aabb: &Aabb,
     aabb_storage: &ReadStorage<AabbComponent>,
     child_node_max_size: usize,
-) -> (Vec<Entity>, NodeOctants) {
+) -> (Vec<Entity>, Octants<Box<Node>>) {
     let (node_entities, octants) = partition_entities(entities, &aabb.center, aabb_storage);
     let aabb_octants = aabb.partition();
     let tfl = Box::new(Node::_new_from_entities(
@@ -699,7 +542,7 @@ fn partition_children(
     ));
     (
         node_entities,
-        NodeOctants {
+        Octants {
             tfl,
             tfr,
             tbl,

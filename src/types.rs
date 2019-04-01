@@ -2,6 +2,7 @@ mod color;
 mod f32ext;
 mod matrix3fext;
 mod matrix4fext;
+mod octants;
 mod point2fext;
 mod point3fext;
 pub mod prelude;
@@ -10,7 +11,7 @@ mod vector2fext;
 mod vector3fext;
 mod vector4fext;
 
-pub use crate::types::color::Color;
+pub use crate::types::{color::Color, octants::{Octants, OctantIndex}};
 
 use crate::na::{
     Affine2, Affine3, Matrix3, Matrix4, Point2, Point3, Translation3, UnitQuaternion, Vector2,

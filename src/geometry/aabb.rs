@@ -1,20 +1,8 @@
 use crate::{
-    types::prelude::*,
+    types::{prelude::*, Octants},
     utils::{f32, point3f},
 };
 use std::f32::INFINITY;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Octants {
-    pub tfr: Aabb,
-    pub tfl: Aabb,
-    pub tbr: Aabb,
-    pub tbl: Aabb,
-    pub bfr: Aabb,
-    pub bfl: Aabb,
-    pub bbr: Aabb,
-    pub bbl: Aabb,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Aabb {
@@ -114,7 +102,7 @@ impl Aabb {
         self.extents.x.is_infinite() || self.extents.y.is_infinite() || self.extents.z.is_infinite()
     }
 
-    pub fn partition(&self) -> Octants {
+    pub fn partition(&self) -> Octants<Aabb> {
         if self.is_infinite() {
             panic!("{:?} is infinite", self);
         }
